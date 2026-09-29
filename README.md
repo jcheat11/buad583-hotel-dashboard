@@ -5,13 +5,21 @@ Chief of Staff. It imports a defined monthly template, checks the data, calculat
 ADR and RevPAR from the underlying rooms and revenue, compares against budget, and drafts a
 short written briefing that an asset manager must approve before it can be shared.
 
-**Everything runs on your computer.** The app needs no internet connection, calls no AI
-service, and keeps real data in the `local_data/` folder, which is never shared.
+**Two modes, with different privacy rules:**
+
+- **Local company app** (`run_app.bat` / `app.py`): runs on your computer, needs no internet
+  connection, keeps real data in the `local_data/` folder (never shared), and **never calls an
+  outside AI model**. The briefing is written by fixed rules.
+- **Hosted fictional demo** (`demo_app.py` on Streamlit Community Cloud, invited viewers only):
+  fictional or dummy data only. Uploads are processed on Streamlit's servers, in memory, for each
+  visitor's session. The optional **Draft AI Briefing** button sends a small evidence packet of
+  verified, fictional figures (never a workbook) to Google Gemini on the free tier, where Google
+  may use requests to improve its products.
 
 **Privacy rule:** company financial data must never be sent to an outside AI (LLM) service. A
-model running entirely on the user's computer may process it (not used in v0). Future Power BI
-or CRM connections may read from approved company systems, but must not pass financial data to
-an outside AI service. During development, only fictional or approved sanitized data is used.
+model running entirely on the user's computer may process it (not used in this version). Future
+Power BI or CRM connections may read from approved company systems, but must not pass financial
+data to an outside AI service. During development, only fictional or approved sanitized data is used.
 
 ---
 
@@ -154,22 +162,39 @@ tests/                     automated tests (fictional data only)
 local_data/                YOUR real data; created when you set it up; never shared
 ```
 
-## 7. Sharing a working v0 with your instructor (fictional data only)
+## 7. The hosted fictional demo (Streamlit Community Cloud)
 
-The recommended route is **Streamlit Community Cloud** (free), running `demo_app.py`. That entry
-point only uses the fictional demo workspace (never `local_data/`). Visitors can upload dummy files
-to watch the dashboard update, behind these safeguards: a warning and a "fictional or dummy data
-only" confirmation before any upload control appears; only rows for the six fictional hotels are
-accepted (real company files are rejected as unknown properties); .xlsm workbooks are refused; and
-uploads stay in memory for that visitor's browser session only (nothing is saved or shared).
-The Data Imports page offers the fictional sample files as a zip to edit and re-upload.
+The demo runs `demo_app.py` from the private GitHub repository on Streamlit Community Cloud;
+invited viewers sign in to open it. It only ever uses the fictional demo workspace (never
+`local_data/`).
 
-1. Put this folder in a GitHub repository. Before the first push, run `git status` and confirm
-   nothing from `local_data/` and no real spreadsheet is listed.
-2. At share.streamlit.io, create an app from that repository and set the **main file to
-   `demo_app.py`**.
-3. In the app's sharing settings, limit viewers to your instructor's email if you don't want it
-   public.
+**Dummy uploads.** A warning and a "fictional or dummy data only" confirmation come before any
+upload control; only rows for the six fictional hotels are accepted (real company files are
+rejected as unknown properties); .xlsm workbooks are refused; uploads are processed in memory on
+Streamlit's servers for that visitor's session only (nothing is saved; visitors can't see each
+other's data). The Data Imports page offers the fictional sample files as a zip to edit and re-upload.
+
+**Draft AI Briefing (hosted demo only).** Under the rule-based Management Briefing, a button asks
+Google Gemini (`gemini-3.5-flash-lite`, free tier) to draft the same three sections from an
+*evidence packet*: the rule-based briefing's verified statements, the exception flags, and the
+data-check and reconciliation results, each with an ID (E1, E2, ...). The workbook is never sent.
+The reply is validated before it is shown: every item must cite existing evidence IDs, every
+number must appear in the evidence it cites (otherwise the item is removed and listed), and
+possible causes are labelled *unverified*. The draft is marked *AI draft—asset-manager review
+required*, needs its own approval before it can be downloaded, and is discarded (with its
+approval) when the imports or the Show / Month selection change. The model is only called when
+the button is clicked. A missing key, the free-tier limit or a model failure shows a message; the
+dashboard and the rule-based briefing keep working. The local company app has no AI button and
+refuses outside AI calls in code (`hotel_dashboard/ai_briefing.py`, `ai_allowed`).
+The hidden page `/ai-evaluation` runs four fictional cases (normal, adverse, missing data,
+reconciliation error) through the AI and the rule-based briefing and scores them.
+
+**The Gemini key lives only in Streamlit's secrets**, never in the project or on GitHub:
+1. Create a free key at aistudio.google.com (Get API key). Do not enable billing.
+2. On share.streamlit.io, open the app's menu (⋮) > **Settings** > **Secrets**, add the line
+   `GEMINI_API_KEY = "your-key"` and click **Save**. Optionally add `GEMINI_MODEL = "..."`
+   to switch model.
+3. Reload the app. `.streamlit/secrets.toml` is git-ignored, so a local copy can't be committed.
 
 ## 8. Not built yet
 
