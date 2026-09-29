@@ -1,0 +1,50 @@
+# Streamlit settings for this project.
+
+[browser]
+# Don't send anonymous usage statistics to Streamlit. The app makes no other outside calls.
+gatherUsageStats = false
+
+[server]
+# Only this computer can open the app. This also stops Streamlit from looking up the
+# computer's external IP address online at start-up.
+address = "localhost"
+# Skip Streamlit's first-run email prompt. run_app.bat opens the browser instead.
+headless = true
+
+# West77 Partners palette, from the 2022 style guide (Rev 2):
+#   Prussian Blue #203246 (primary) · Mustard Yellow #DBB940 (primary, accent only)
+#   YInMn Blue #325274 · Silver Chalice #B6B3AB · tints from the expanded palette
+# All text/background pairs below meet WCAG AA contrast (4.5:1 or better).
+# Status colours (green/orange/red) are not defined by the guide; they are kept functional.
+[theme]
+base = "light"
+primaryColor = "#325274"
+backgroundColor = "#F8F8F7"
+secondaryBackgroundColor = "#EBEEF2"
+textColor = "#203246"
+linkColor = "#325274"
+borderColor = "#CBD3DC"
+dataframeHeaderBackgroundColor = "#E9EBED"
+baseRadius = "medium"
+baseFontSize = 17
+headingFontWeights = [800, 700, 700, 700, 700, 700]
+headingFontSizes = ["2.6rem", "1.9rem", "1.35rem", "1.2rem", "1rem", "0.9rem"]
+metricValueFontWeight = 700
+# Status colours (badges): distinct fills with dark text; every status also has a word and a symbol.
+greenBackgroundColor = "#DCF1E3"
+greenTextColor = "#14532D"
+orangeBackgroundColor = "#FDE8C4"
+orangeTextColor = "#7A4300"
+redBackgroundColor = "#F9D6D2"
+redTextColor = "#8E1D16"
+grayBackgroundColor = "#E6EAF0"
+grayTextColor = "#475467"
+blueBackgroundColor = "#EBEEF2"
+blueTextColor = "#325274"
+
+[theme.sidebar]
+backgroundColor = "#203246"
+textColor = "#FFFFFF"
+secondaryBackgroundColor = "#325274"
+primaryColor = "#DBB940"
+borderColor = "#415061"

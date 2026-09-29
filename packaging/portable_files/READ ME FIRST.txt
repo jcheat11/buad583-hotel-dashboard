@@ -1,0 +1,31 @@
+HOTEL ASSET DASHBOARD - PORTABLE DEMO (fictional data only)
+===========================================================
+
+This is a test build. It shows six made-up hotels. It cannot load real company files.
+
+To start
+  1. Unzip the whole folder to a folder that OneDrive does not sync, e.g. C:\Users\<you>\HotelDashboard.
+     (Do not run it from inside the zip file.)
+  2. Double-click "Start Hotel Dashboard.bat".
+  3. After a few seconds (up to about 30 the first time) your web browser opens the dashboard.
+     No window needs to stay open.
+
+The tray icon (near the clock, bottom-right)
+  While the dashboard runs, a navy "H" icon sits in the taskbar tray. Click it for:
+    - Open Dashboard   opens it again in your browser
+    - Quit Dashboard   stops it
+  On Windows 11 new icons may be hidden: click the small ^ arrow next to the clock to find it.
+  You can drag it onto the taskbar to keep it visible.
+
+Important
+  - Closing the browser tab does NOT stop the dashboard. Use Quit Dashboard.
+  - Starting it again while it is running simply reopens the dashboard (no second copy).
+  - If the tray icon is missing or not responding, double-click "Stop Hotel Dashboard.bat".
+
+Notes
+  - Nothing is installed and no internet connection is needed. Python is inside the "python" folder.
+  - The dashboard is only reachable from this computer (the address starts with http://localhost).
+  - Diagnostic logs (start/stop events and errors, no financial figures) are kept in
+    %LOCALAPPDATA%\Hotel Asset Dashboard (Demo)\logs
+  - If Windows shows "Windows protected your PC", this is because the launcher is not signed.
+    Click "More info" then "Run anyway" only if you received this folder from the project team.

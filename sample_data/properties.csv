@@ -1,0 +1,7 @@
+property_id,property_name,keys,brand,asset_cohort,stabilization_stage
+H01,Harbor House Hotel,140,Harborline Hotels,Legacy Assets,Stabilized Properties
+H02,Mesa Suites,110,LivAway Suites,Legacy Assets,Stabilized Properties
+H03,Parkside Inn,96,Harborline Hotels,2023 Acquisitions,Stabilized Properties
+H04,Riverbend Lodge,124,LivAway Suites,2023 Acquisitions,Stabilized Properties
+H05,Summit Point Hotel,132,Harborline Hotels,2023 Acquisitions,Ramp-up Properties
+H06,Canyon Gate Suites,104,LivAway Suites,2025 Developments,Ramp-up Properties
