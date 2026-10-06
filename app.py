@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from PIL import Image          # Pillow comes with Streamlit; used only to trim the logo's transparent margins
 
 from hotel_dashboard import ai_briefing, ai_eval, briefing, charts, metrics, sources
 from hotel_dashboard import definitions as d
@@ -58,6 +59,14 @@ def md(text: str) -> str:
 def when(iso_timestamp: str) -> str:
     """'2026-09-28T13:17:05' -> '28 Sep 2026, 13:17'."""
     return datetime.fromisoformat(str(iso_timestamp)).strftime("%d %b %Y, %H:%M")
+
+
+@st.cache_resource
+def logo_image():
+    """The Torchfolio logo with its transparent margins trimmed, so it sits close to the page title."""
+    image = Image.open(LOGO_FILE)
+    box = image.getchannel("A").getbbox() if image.mode == "RGBA" else None
+    return image.crop(box) if box else image
 
 
 def uploads_allowed() -> bool:
@@ -172,13 +181,15 @@ def sidebar() -> None:
 def overview_page() -> None:
     store = current_store()
     # Short notices sit in the top-right corner; the full details are in the status bar near the bottom.
+    # Less empty space above the logo than Streamlit's default page padding.
+    st.html("<style>[data-testid='stMainBlockContainer']{padding-top:5.5rem}</style>")
     brand, notice_area = st.columns([1, 1], vertical_alignment="center")
     if LOGO_FILE.exists():
-        brand.image(str(LOGO_FILE), width=460)      # on the page's very light background
+        brand.image(logo_image(), width=404)        # same visible size as before; on the very light background
     notices = notice_area.container(horizontal=True, horizontal_alignment="right", gap="small")
     if workspace() == "demo":
         notices.badge("Demo · fictional data", icon=":material/science:", color="gray")
-    title_area, filter_area = st.columns([5, 7], vertical_alignment="center")
+    title_area, filter_area = st.columns([5, 7], vertical_alignment="top")   # title directly under the logo
     title_area.title("Portfolio Overview")
 
     if store is None:
