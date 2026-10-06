@@ -31,6 +31,16 @@ class AppTests(unittest.TestCase):
         self.assertEqual(labels, ["Occupancy", "ADR", "RevPAR", "Net Operating Income (NOI)"])
         self.assertEqual(at.title[0].value, "Portfolio Overview")
 
+    def test_overview_shows_the_torchfolio_logo(self):
+        import app
+        self.assertTrue(app.LOGO_FILE.exists())               # shipped in the repository's assets folder
+        at = AppTest.from_file("../app.py", default_timeout=60)
+        at.session_state["workspace"] = "demo"
+        at.run()
+        self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
+        self.assertEqual(len(at.get("image")), 1)
+        self.assertEqual(at.title[0].value, "Portfolio Overview")
+
     def test_local_app_offers_file_upload(self):
         at = AppTest.from_function(imports_screen, args=(False,), default_timeout=60).run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])

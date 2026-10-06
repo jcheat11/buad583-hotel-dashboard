@@ -40,6 +40,7 @@ from hotel_dashboard.store import DataStore
 
 APP_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_DIR = APP_DIR / "local_data"
+LOGO_FILE = APP_DIR / "assets" / "torchfolio-portfolio-flame-black-orange.png"   # black wordmark: light background only
 
 MODE = {"hosted_demo": False}   # set by main(); True only when started from demo_app.py
 PAGES: dict = {}                 # the app's pages, filled in by main() (detail views are linked from previews)
@@ -171,7 +172,10 @@ def sidebar() -> None:
 def overview_page() -> None:
     store = current_store()
     # Short notices sit in the top-right corner; the full details are in the status bar near the bottom.
-    notices = st.container(horizontal=True, horizontal_alignment="right", gap="small")
+    brand, notice_area = st.columns([1, 2], vertical_alignment="center")
+    if LOGO_FILE.exists():
+        brand.image(str(LOGO_FILE), width=230)      # on the page's very light background; wide enough to read
+    notices = notice_area.container(horizontal=True, horizontal_alignment="right", gap="small")
     if workspace() == "demo":
         notices.badge("Demo · fictional data", icon=":material/science:", color="gray")
     title_area, filter_area = st.columns([5, 7], vertical_alignment="center")
@@ -1339,7 +1343,7 @@ def signals_page() -> None:
 
 def main(hosted_demo: bool = False) -> None:
     MODE["hosted_demo"] = hosted_demo
-    st.set_page_config(page_title="Hotel Asset Dashboard", page_icon=":material/apartment:", layout="wide",
+    st.set_page_config(page_title="Torchfolio", page_icon=":material/apartment:", layout="wide",
                        initial_sidebar_state="collapsed")
     PAGES.update(
         overview=st.Page(overview_page, title="Portfolio Overview", icon=":material/space_dashboard:", default=True),
