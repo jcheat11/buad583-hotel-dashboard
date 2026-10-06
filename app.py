@@ -172,9 +172,9 @@ def sidebar() -> None:
 def overview_page() -> None:
     store = current_store()
     # Short notices sit in the top-right corner; the full details are in the status bar near the bottom.
-    brand, notice_area = st.columns([1, 2], vertical_alignment="center")
+    brand, notice_area = st.columns([1, 1], vertical_alignment="center")
     if LOGO_FILE.exists():
-        brand.image(str(LOGO_FILE), width=230)      # on the page's very light background; wide enough to read
+        brand.image(str(LOGO_FILE), width=460)      # on the page's very light background
     notices = notice_area.container(horizontal=True, horizontal_alignment="right", gap="small")
     if workspace() == "demo":
         notices.badge("Demo · fictional data", icon=":material/science:", color="gray")
@@ -478,7 +478,7 @@ STATUS_STYLE = {                      # status: (symbol, cell fill, text colour)
     "review": ("✕", "#F9D6D2", "#8E1D16"),
     "watch": ("!", "#FDE8C4", "#7A4300"),
     "good": ("✓", "#DCF1E3", "#14532D"),
-    "missing": ("–", "#E6EAF0", "#475467"),
+    "missing": ("–", "#EBEBEB", "#4D4D4D"),
 }
 STATUS_BADGE = {"review": "red", "watch": "orange", "good": "green", "missing": "gray"}   # same fills as above
 STATUS_HELP = ("On Plan = at or near budget; Watch = off plan, but inside the review threshold; Review = needs a "

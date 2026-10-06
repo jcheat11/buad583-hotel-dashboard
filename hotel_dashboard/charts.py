@@ -12,23 +12,23 @@ import pandas as pd
 
 from .formatting import money, money_short
 
-# West77 Partners style guide (2022, Rev 2). Marks clear 3:1 contrast on white except the gold accent,
-# which is used only for the rare, always-labelled "not explained" bridge step.
-NAVY = "#203246"              # Prussian Blue
-ACTUAL_COLOR = "#203246"      # actual results: Prussian Blue, as the guide's main chart series
-BUDGET_COLOR = "#797979"      # budget: guide grey, dashed in line charts
-SECOND_SERIES = "#325274"     # YInMn Blue
-FAVORABLE = "#1F8A70"         # raises profit (functional; the guide has no status colours)
+# Torchfolio scheme: black with Mustard Yellow (West77 style guide) as the accent, on neutral greys.
+# Marks clear 3:1 contrast on white except the mustard accent, which is always dashed or labelled.
+NAVY = "#111111"              # (name kept for the code) black: totals and headings in charts
+ACTUAL_COLOR = "#111111"      # actual results: black, the main chart series
+BUDGET_COLOR = "#797979"      # budget: grey, dashed in line charts
+SECOND_SERIES = "#4D4D4D"     # dark grey
+FAVORABLE = "#1F8A70"         # raises profit (functional status colour)
 UNFAVORABLE = "#C8413A"       # lowers profit (functional)
 UNEXPLAINED = "#DBB940"       # Mustard Yellow accent: gap in the imported lines
 MUSTARD = "#DBB940"           # Mustard Yellow (primary palette)
 BUDGET_LINE = MUSTARD         # budget in the trend charts: mustard AND dashed (colour is not the only cue)
-OPERATING_COST = "#5B7A99"    # YInMn Blue tint: operating expense steps in the EBITDA waterfall
-BELOW_GOP_COST = "#8C877C"    # Silver Chalice shade: below-GOP expense steps
-INK = "#203246"
-MUTED = "#63707E"             # Prussian Blue tint
-GRID = "#E9EBED"
-AXIS = "#C7CBD0"
+OPERATING_COST = "#555555"    # dark grey: operating expense steps in the EBITDA waterfall
+BELOW_GOP_COST = "#8C877C"    # warm grey (Silver Chalice shade): below-GOP expense steps
+INK = "#111111"
+MUTED = "#666666"             # grey text
+GRID = "#E8E8E8"
+AXIS = "#C8C8C8"
 FONT = "Source Sans Pro, sans-serif"
 
 
@@ -97,7 +97,7 @@ def trend_chart(data: pd.DataFrame, field: str, title: str, is_percent: bool, he
 # --- Operating profit bridge -------------------------------------------------------------------
 
 BRIDGE_KINDS = {
-    "budget": ("Budget GOP", "#858E99"),
+    "budget": ("Budget GOP", "#8A8A8A"),
     "actual": ("Actual GOP", ACTUAL_COLOR),
     "favorable": ("Raises GOP", FAVORABLE),
     "unfavorable": ("Lowers GOP", UNFAVORABLE),

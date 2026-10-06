@@ -11,20 +11,19 @@ address = "localhost"
 # Skip Streamlit's first-run email prompt. run_app.bat opens the browser instead.
 headless = true
 
-# West77 Partners palette, from the 2022 style guide (Rev 2):
-#   Prussian Blue #203246 (primary) · Mustard Yellow #DBB940 (primary, accent only)
-#   YInMn Blue #325274 · Silver Chalice #B6B3AB · tints from the expanded palette
+# Torchfolio scheme: black with Mustard Yellow (#DBB940, from the West77 style guide) as the accent,
+# on neutral greys. Navy/blue tones were replaced with black in Oct 2026 to match the Torchfolio logo.
 # All text/background pairs below meet WCAG AA contrast (4.5:1 or better).
-# Status colours (green/orange/red) are not defined by the guide; they are kept functional.
+# Status colours (green/orange/red) are functional, not brand colours.
 [theme]
 base = "light"
-primaryColor = "#325274"
+primaryColor = "#111111"
 backgroundColor = "#F8F8F7"
-secondaryBackgroundColor = "#EBEEF2"
-textColor = "#203246"
-linkColor = "#325274"
-borderColor = "#CBD3DC"
-dataframeHeaderBackgroundColor = "#E9EBED"
+secondaryBackgroundColor = "#EEEEEE"
+textColor = "#111111"
+linkColor = "#111111"
+borderColor = "#D4D4D4"
+dataframeHeaderBackgroundColor = "#EBEBEB"
 baseRadius = "medium"
 baseFontSize = 17
 headingFontWeights = [800, 700, 700, 700, 700, 700]
@@ -37,14 +36,14 @@ orangeBackgroundColor = "#FDE8C4"
 orangeTextColor = "#7A4300"
 redBackgroundColor = "#F9D6D2"
 redTextColor = "#8E1D16"
-grayBackgroundColor = "#E6EAF0"
-grayTextColor = "#475467"
-blueBackgroundColor = "#EBEEF2"
-blueTextColor = "#325274"
+grayBackgroundColor = "#EBEBEB"
+grayTextColor = "#4D4D4D"
+blueBackgroundColor = "#EEEEEE"
+blueTextColor = "#111111"
 
 [theme.sidebar]
-backgroundColor = "#203246"
+backgroundColor = "#111111"
 textColor = "#FFFFFF"
-secondaryBackgroundColor = "#325274"
+secondaryBackgroundColor = "#2B2B2B"
 primaryColor = "#DBB940"
-borderColor = "#415061"
+borderColor = "#3A3A3A"
