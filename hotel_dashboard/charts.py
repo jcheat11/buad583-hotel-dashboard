@@ -3,7 +3,7 @@ The dashboard's charts (Altair). Each function takes a small table from metrics.
 No calculations happen here; every number shown is computed in metrics.py.
 
 Colour is never the only signal: every bar carries a text label with its sign and value, and
-budget lines are Mustard Yellow AND dashed, with a legend.
+budget lines are orange AND dashed, with a legend.
 """
 from __future__ import annotations
 
@@ -12,19 +12,19 @@ import pandas as pd
 
 from .formatting import money, money_short
 
-# Torchfolio scheme: black with Mustard Yellow (West77 style guide) as the accent, on neutral greys.
-# Marks clear 3:1 contrast on white except the mustard accent, which is always dashed or labelled.
+# Torchfolio scheme: black with the logo's flame orange as the accent, on neutral greys.
+# Marks clear 3:1 contrast on white except light orange and grey steps, which always carry value labels.
 NAVY = "#111111"              # (name kept for the code) black: totals and headings in charts
 ACTUAL_COLOR = "#111111"      # actual results: black, the main chart series
 BUDGET_COLOR = "#797979"      # budget: grey, dashed in line charts
 SECOND_SERIES = "#4D4D4D"     # dark grey
 FAVORABLE = "#1F8A70"         # raises profit (functional status colour)
 UNFAVORABLE = "#C8413A"       # lowers profit (functional)
-UNEXPLAINED = "#DBB940"       # Mustard Yellow accent: gap in the imported lines
-MUSTARD = "#DBB940"           # Mustard Yellow (primary palette)
-BUDGET_LINE = MUSTARD         # budget in the trend charts: mustard AND dashed (colour is not the only cue)
-OPERATING_COST = "#555555"    # dark grey: operating expense steps in the EBITDA waterfall
-BELOW_GOP_COST = "#8C877C"    # warm grey (Silver Chalice shade): below-GOP expense steps
+UNEXPLAINED = "#FF6F00"       # orange accent: gap in the imported lines
+ORANGE = "#FF6F00"            # Torchfolio flame orange (accent)
+BUDGET_LINE = ORANGE          # budget in the trend charts: orange AND dashed (colour is not the only cue)
+OPERATING_COST = "#FDBA8C"    # light orange: operating expense (above-GOP) steps in the EBITDA waterfall
+BELOW_GOP_COST = "#8C877C"    # grey: below-GOP expense steps
 INK = "#111111"
 MUTED = "#666666"             # grey text
 GRID = "#E8E8E8"
@@ -152,7 +152,7 @@ WATERFALL_KINDS = {
     "total": ("Revenue, GOP, EBITDA", NAVY),
     "operating": ("Operating expenses", OPERATING_COST),
     "below_gop": ("Below-GOP expenses", BELOW_GOP_COST),
-    "difference": ("Difference to reported figure", MUSTARD),
+    "difference": ("Difference to reported figure", ORANGE),
 }
 
 

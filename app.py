@@ -491,7 +491,7 @@ STATUS_STYLE = {                      # status: (symbol, cell fill, text colour)
     "good": ("✓", "#DCF1E3", "#14532D"),
     "missing": ("–", "#EBEBEB", "#4D4D4D"),
 }
-STATUS_BADGE = {"review": "red", "watch": "orange", "good": "green", "missing": "gray"}   # same fills as above
+STATUS_BADGE = {"review": "red", "watch": "yellow", "good": "green", "missing": "gray"}   # same fills as above
 STATUS_HELP = ("On Plan = at or near budget; Watch = off plan, but inside the review threshold; Review = needs a "
                "decision now; No data = nothing to compare. The colour matches the status tiles above.")
 STATUS_MEANING = {
