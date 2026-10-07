@@ -33,7 +33,7 @@ baseFontSize = 17
 # SIL Open Font License; see static/fonts/OFL-*.txt). Bundled, so nothing is fetched at runtime.
 font = "Inter, sans-serif"
 headingFont = "Space Grotesk, Inter, sans-serif"
-headingFontWeights = [400, 600, 600, 600, 600, 600]   # page titles regular; headings semibold
+headingFontWeights = [600, 600, 600, 600, 600, 600]   # titles and headings semibold (Space Grotesk 600)
 headingFontSizes = ["2.6rem", "1.9rem", "1.35rem", "1.2rem", "1rem", "0.9rem"]
 metricValueFontWeight = 700
 metricValueFontSize = "1.8rem"   # fits four KPI cards across on narrower laptop/tablet widths
