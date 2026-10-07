@@ -24,6 +24,22 @@ def run_app(store=None, **state):
     return at.run()
 
 
+def review_screen():
+    import app
+    app.review_page()
+
+
+def run_review(store=None, **state):
+    """The Review Log page with the given selection (as carried over from Portfolio Overview)."""
+    at = AppTest.from_function(review_screen, default_timeout=90)
+    at.session_state["workspace"] = "demo"
+    if store is not None:
+        at.session_state["demo_store"] = store
+    for key, value in state.items():
+        at.session_state[key] = value
+    return at.run()
+
+
 def page_text(at) -> str:
     """Everything written on the page as text (dollar signs un-escaped)."""
     parts = [e.value for kind in ("markdown", "caption", "info", "warning") for e in getattr(at, kind)]
@@ -48,7 +64,7 @@ class FilterTests(unittest.TestCase):
     def expect(self, ids):
         return metrics.combine(self.store.facts, ids, MONTH, "Actual")
 
-    def check_widgets_match(self, at, ids, label):
+    def check_widgets_match(self, at, ids, label, **state):
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
         totals = self.expect(ids)
         cards = [m.value for m in at.metric]
@@ -57,7 +73,8 @@ class FilterTests(unittest.TestCase):
         text = page_text(at)
         self.assertIn(f"**{label}**", text)                                    # reporting line
         self.assertIn(f"reported EBITDA {money(totals['ebitda'], 0)}", text)   # EBITDA waterfall check line
-        self.assertIn(f"{label}, July 2026, {len(ids)} hotel", text)           # briefing sources
+        review = page_text(run_review(**state))                                # Review Log: same selection
+        self.assertIn(f"{label}, July 2026, {len(ids)} hotel", review)         # briefing sources
         return text
 
     def test_all_properties(self):
@@ -67,7 +84,7 @@ class FilterTests(unittest.TestCase):
 
     def test_one_property_updates_every_widget(self):
         at = run_app(view="One property", property_pick="H06")
-        self.check_widgets_match(at, ["H06"], "Canyon Gate Suites")
+        self.check_widgets_match(at, ["H06"], "Canyon Gate Suites", view="One property", property_pick="H06")
         rows = map_rows(at)
         self.assertEqual(len(rows), 6)                                         # map still shows the portfolio
         self.assertIn("▶ Canyon Gate Suites", list(rows["Property"]))          # with the selection marked
@@ -79,7 +96,8 @@ class FilterTests(unittest.TestCase):
         grouping.set_value("asset_cohort").run()
         group = next(s for s in at.selectbox if s.label == "Group")
         group.set_value("Legacy Assets").run()
-        self.check_widgets_match(at, ["H01", "H02"], "Asset Cohort: Legacy Assets")
+        self.check_widgets_match(at, ["H01", "H02"], "Asset Cohort: Legacy Assets", view="Property group",
+                                 group_by="asset_cohort", group_pick="Legacy Assets")
         self.assertEqual(len(map_rows(at)), 2)
         legacy = self.expect(["H01", "H02"])
         h01, h02 = self.expect(["H01"]), self.expect(["H02"])
@@ -93,8 +111,8 @@ class FilterTests(unittest.TestCase):
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
         text = page_text(at)
         self.assertIn("5 of 6 hotels reporting", text)
-        self.assertIn("No actual figures for Parkside Inn", text)              # status bar detail
-        self.assertIn("No July 2026 actuals for Parkside Inn", text)           # briefing decision card
+        self.assertIn("No actual figures for Parkside Inn", page_text(run_review(store)))   # Review Log sources
+        self.assertIn("No July 2026 actuals for Parkside Inn", page_text(run_review(store)))   # briefing statement
         rows = map_rows(at)
         self.assertIn("✕ No actuals", list(rows["Data Quality"]))
 
@@ -110,10 +128,10 @@ class FilterTests(unittest.TestCase):
         self.assertNotIn("Budget EBITDA", text)                                # no partial budget comparison
 
     def test_approval_flow_unlocks_the_download(self):
-        at = run_app()
+        at = run_review()                                                       # approval lives on Review Log
         self.assertFalse([b for b in at.get("download_button")])               # locked while a draft
-        next(t for t in at.text_input if t.label == "Reviewer name").input("Test Reviewer")
-        next(c for c in at.checkbox if c.label.startswith("I have checked")).check()
+        next(t for t in at.text_input if t.key == "rule_reviewer").input("Test Reviewer")
+        next(c for c in at.checkbox if c.key == "rule_confirmed").check()
         next(b for b in at.button if b.label == "Approve for sharing").click()
         at.run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])

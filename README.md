@@ -134,6 +134,12 @@ Rules that keep company data private:
     (labelled). Numerator and minimum come from the file; nothing is assumed.
 - **Properties Needing Attention:** RevPAR and GOP vs budget, labor vs budget and data quality per
   hotel, each with a symbol (✓ ! ✕ –) and words as well as a colour (Review / Watch / On Plan). Thresholds are in `definitions.py`.
+- **Review Log** (tab after Data Imports & Checks; page *Calculation & Evidence Log*): for the
+  selection on Portfolio Overview, (1) how each key result was calculated (formula, inputs, result,
+  budget, anything missing), (2) which imported file supplied each hotel-month, coverage, warnings
+  and reconciliation, and what can't be traced, (3) the briefing evidence and the Asset Manager
+  Review for the rule-based briefing and (hosted demo) the AI draft. It is rebuilt from the current
+  data each time, not a permanent audit trail.
 - **Briefing:** fixed rules turn verified calculations into statements. Each statement shows its
   source figures. *Possible causes* are separate, written as questions, and marked unverified. Approval is tied to the exact statements: if the figures change, the briefing goes
   back to draft.

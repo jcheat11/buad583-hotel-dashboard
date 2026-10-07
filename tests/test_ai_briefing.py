@@ -203,20 +203,15 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("Management Briefing", text)                       # rule-based briefing still there
         self.assertFalse([b for b in at.get("download_button") if "AI draft" in b.label])   # locked until approved
 
-    def test_approval_then_invalidated_by_a_new_selection(self):
+    def test_selection_change_discards_the_draft(self):
         at = self.open()
         with mock.patch(POST, side_effect=echo_model):
             at.run()
             self.button(at, "Draft AI Briefing").click().run()
-            next(t for t in at.text_input if t.key == "ai_reviewer").input("Test Reviewer")
-            next(c for c in at.checkbox if c.key == "ai_confirmed").check()
-            self.button(at, "Approve AI draft").click().run()
-            self.assertIn("Approved AI draft · Test Reviewer", page_text(at))
-            self.assertTrue([b for b in at.get("download_button") if "AI draft" in b.label])
+            self.assertIn("AI draft—asset-manager review required", page_text(at))
             next(s for s in at.selectbox if s.label == "Month").set_value("2026-06").run()
-        text = page_text(at)
-        self.assertIn("previous AI draft (and any approval of it) was discarded", text)
-        self.assertNotIn("Approved AI draft", text)
+        self.assertIn("previous AI draft (and any approval of it) was discarded", page_text(at))
+        # Approval of the AI draft is on Review Log: see tests/test_review_log.py.
 
     def test_missing_key_and_quota_leave_the_dashboard_usable(self):
         for key, reply, message in ((None, None, "no GEMINI_API_KEY"),

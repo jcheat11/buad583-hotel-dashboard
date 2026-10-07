@@ -33,9 +33,10 @@ import streamlit as st
 from PIL import Image          # Pillow comes with Streamlit; used only to trim the logo's transparent margins
 
 from hotel_dashboard import ai_briefing, ai_eval, briefing, charts, metrics, sources
+from hotel_dashboard import trace as trace_mod
 from hotel_dashboard import definitions as d
 from hotel_dashboard.demo import SAMPLE_DIR, SAMPLE_IMPORTS, SOURCE_DEMOS, TEMPLATE_FILE, build_demo_store
-from hotel_dashboard.formatting import count, money, money_short, month_label, pct, points, signed_pct
+from hotel_dashboard.formatting import count, money, money_short, month_label, pct, points, signed_money, signed_pct
 from hotel_dashboard.importer import read_monthly_workbook
 from hotel_dashboard.store import DataStore
 
@@ -180,7 +181,7 @@ def sidebar() -> None:
 
 def overview_page() -> None:
     store = current_store()
-    # Short notices sit in the top-right corner; the full details are in the status bar near the bottom.
+    # Short notices sit in the top-right corner; the full sourcing details are on Review Log.
     # Less empty space above the logo than Streamlit's default page padding.
     st.html("<style>[data-testid='stMainBlockContainer']{padding-top:5.5rem}</style>")
     brand, notice_area = st.columns([1, 1], vertical_alignment="center")
@@ -218,20 +219,19 @@ def overview_page() -> None:
         notices.badge(text, icon=icon, color=color, help=md(detail))
     if summary["actual"] is None:
         st.info(f"No actual figures for {label} in {month_label(month)}. Import them on **Data Imports & Checks**.")
-        status_bar(status)
+        source_indicator(status)
         return
 
     kpi_cards(summary)
     trends_panel(facts, ids, month)
     profit_section(store, summary, ids, month)
     # The map lists the hotels in the selected group, or the whole portfolio when one hotel is selected.
-    map_ids = ids if scope.kind == "group" else list(properties["property_id"])
-    attention_panel(store, map_ids, month, warnings, scope)
+    attention_panel(store, map_ids_for(scope, ids, properties), month, warnings, scope)
     forward_panels(store, scope, ids, month)
-    briefing_section(store, ids, scope, label, month, warnings, status["note"])
+    briefing_section(store, ids, scope, label, month, warnings)       # cards + status; review on Review Log
     if ai_briefing.ai_allowed(MODE["hosted_demo"], workspace()):     # never in the local company-data app
-        ai_draft_panel(store, ids, scope, label, month, warnings, map_ids)
-    status_bar(status)   # source period and import details: the very bottom of the page
+        ai_draft_panel(store, ids, scope, label, month, warnings)
+    source_indicator(status)   # brief source / data-quality line; full sourcing on Review Log
 
 
 VIEWS = ["All properties", "One property", "Property group"]
@@ -317,21 +317,6 @@ def data_status(store: DataStore, ids, month: str, months: list[str], summary: d
         f"{scenario.lower()} imported {stamp} ({', '.join(files)})" for scenario, (stamp, files) in imports.items()])
     return {"month": month, "imports": imports, "reporting": reporting, "hotels": len(ids),
             "warnings": len(scoped_warnings), "notices": notices, "note": note}
-
-
-def status_bar(status: dict) -> None:
-    """Source period, import dates, hotels reporting and data checks."""
-    parts = [f":material/calendar_month: **Source period:** {month_label(status['month'])} (closed month)"]
-    for scenario, (stamp, files) in status["imports"].items():
-        parts.append(f":material/description: **{scenario} imported:** {stamp} from "
-                     + ", ".join(f"`{f}`" for f in files))
-    parts.append(f":material/apartment: **Hotels reporting:** {status['reporting']} of {status['hotels']}")
-    parts.append(f":orange[:material/warning: {status['warnings']} data-check warning(s)]" if status["warnings"]
-                 else ":green[:material/check_circle: Data checks passed]")
-    with st.container(border=True):
-        st.markdown(" &nbsp;·&nbsp; ".join(parts))
-        for *_, detail in status["notices"]:
-            st.caption(md(detail))
 
 
 def kpi_cards(summary: dict) -> None:
@@ -820,13 +805,45 @@ CARD_EVIDENCE = {"changed": "Evidence and sources", "matters": "Evidence, source
                  "decision": "Evidence and sources"}
 
 
-def briefing_section(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
-                     warnings: pd.DataFrame, data_note: str) -> None:
-    statements = briefing.build_briefing(store.facts, store.properties, ids, label, month, warnings)
-    summaries = briefing.card_summaries(store.facts, store.properties, ids, month, warnings)
-    fingerprint = briefing.fingerprint(statements)
-    review = store.find_review(scope_key(scope), month, fingerprint)
+def map_ids_for(scope: metrics.Scope, ids, properties: pd.DataFrame) -> list:
+    """The exception map lists the selected group, or the whole portfolio otherwise."""
+    return list(ids) if scope.kind == "group" else list(properties["property_id"])
 
+
+def briefing_state(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
+                   warnings: pd.DataFrame) -> dict:
+    """The rule-based briefing for the selection and its approval (tied to the exact statements)."""
+    statements = briefing.build_briefing(store.facts, store.properties, ids, label, month, warnings)
+    fingerprint = briefing.fingerprint(statements)
+    return {"statements": statements, "fingerprint": fingerprint,
+            "summaries": briefing.card_summaries(store.facts, store.properties, ids, month, warnings),
+            "review": store.find_review(scope_key(scope), month, fingerprint)}
+
+
+def ai_state(store: DataStore, ids, scope: metrics.Scope, label: str, month: str, warnings: pd.DataFrame) -> dict:
+    """
+    The AI draft held in this browser session for the selection, if it still applies. A draft (and so
+    its approval) is discarded when the imports or the selection change. Never calls the model.
+    """
+    packet = ai_briefing.evidence_packet(store.facts, store.properties, ids, label, month, warnings,
+                                         map_ids_for(scope, ids, store.properties))
+    context = "|".join([scope_key(scope), month, ",".join(map(str, store.imports["import_id"])),
+                        ",".join(map(str, store.source_imports["import_id"]))])
+    packet_fp = ai_briefing.packet_fingerprint(packet, context)
+    held = st.session_state.get("ai_draft")
+    stale = held is not None and held.packet_fingerprint != packet_fp
+    if stale:
+        st.session_state.pop("ai_draft")
+        held = None
+    review = store.find_review(f"ai:{scope_key(scope)}", month, held.fingerprint) if held else None
+    return {"packet": packet, "packet_fp": packet_fp, "held": held, "stale": stale, "review": review}
+
+
+def briefing_section(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
+                     warnings: pd.DataFrame) -> None:
+    """Overview: the three concise cards and their status. Evidence and approval are on Review Log."""
+    state = briefing_state(store, ids, scope, label, month, warnings)
+    review = state["review"]
     with st.container(border=True):
         head, badge = st.columns([3, 2], vertical_alignment="center")
         head.subheader("Management Briefing", anchor=False)
@@ -835,47 +852,16 @@ def briefing_section(store: DataStore, ids, scope: metrics.Scope, label: str, mo
                 st.badge(f"Approved · {review['reviewer']}", icon=":material/verified:", color="green")
             else:
                 st.badge("Draft · asset manager review required", icon=":material/edit_note:", color="orange")
-
         for column, (key, title) in zip(st.columns(3, gap="medium"), briefing.SECTIONS.items()):
-            headline, sentence = summaries[key]
-            items = [s for s in statements if s.section == key]
+            headline, sentence = state["summaries"][key]
             with column, st.container(border=True):
                 st.caption(title)
                 st.markdown(f"#### {md(headline)}")
                 st.markdown(md(sentence))
-                with st.expander(CARD_EVIDENCE[key]):
-                    for s in items:
-                        tag = "Possible cause (not verified)" if s.kind == briefing.POSSIBLE_CAUSE else "Fact"
-                        st.markdown(f"**{tag}:** {md(s.text)}")
-                        st.caption(md(f"Source: {s.source}"))
-
-        if review is not None:
-            notes = "" if pd.isna(review["notes"]) else str(review["notes"])
-            st.success(f"Approved for sharing by **{review['reviewer']}** on {when(review['reviewed_at'])}.")
-            text = briefing.to_markdown(statements, label, month, data_note, review["reviewer"],
-                                        when(review["reviewed_at"]), notes, summaries)
-            file_name = f"briefing_{re.sub(r'[^A-Za-z0-9]+', '_', label).strip('_')}_{month}.md"
-            st.download_button("Download approved briefing (.md)", text, file_name=file_name,
-                               mime="text/markdown", type="primary", icon=":material/download:")
-        else:
-            with st.form(f"review_{fingerprint}"):
-                st.markdown("**Asset Manager Review**")
-                name_col, notes_col = st.columns([1, 2])
-                reviewer = name_col.text_input("Reviewer name")
-                notes = notes_col.text_input("Notes to add (optional)")
-                confirmed = st.checkbox("I have checked these statements against the source figures. "
-                                        "Possible causes remain unverified.")
-                submitted = st.form_submit_button("Approve for sharing", type="primary")
-            if submitted:
-                if not reviewer.strip() or not confirmed:
-                    st.error("Enter your name and tick the box to approve.")
-                else:
-                    store.add_review(scope_key(scope), month, fingerprint, reviewer.strip(), notes.strip())
-                    st.rerun()
-        # Compact sourcing note, below the briefing and the approval controls.
-        st.caption(f"{label} · {month_label(month)} · written by fixed rules from the verified figures above; "
-                   "no AI. Facts cite their source; possible causes are unverified. Download unlocks after "
-                   "approval, and the briefing returns to draft if the figures change.")
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.caption(f"{label} · {month_label(month)} · written by fixed rules from the verified figures; no AI. "
+                       "Evidence, sources, approval and download are on Review Log.")
+            link("review", "Review evidence and approve", ":material/fact_check:")
 
 
 def gemini_settings() -> tuple[str | None, str]:
@@ -886,20 +872,20 @@ def gemini_settings() -> tuple[str | None, str]:
         return None, ai_briefing.DEFAULT_MODEL
 
 
-def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, month: str, warnings: pd.DataFrame,
-                   map_ids) -> None:
-    """Hosted fictional demo only: an optional AI draft of the three briefing sections, checked and approved."""
-    packet = ai_briefing.evidence_packet(store.facts, store.properties, ids, label, month, warnings, map_ids)
-    context = "|".join([scope_key(scope), month, ",".join(map(str, store.imports["import_id"])),
-                        ",".join(map(str, store.source_imports["import_id"]))])
-    packet_fp = ai_briefing.packet_fingerprint(packet, context)
-    held = st.session_state.get("ai_draft")
-    stale = held is not None and held.packet_fingerprint != packet_fp
-    if stale:                                            # new import or selection: the old draft no longer applies
-        st.session_state.pop("ai_draft")
-        held = None
-    review = store.find_review(f"ai:{scope_key(scope)}", month, held.fingerprint) if held else None
+def ai_status_badge(state: dict) -> None:
+    if state["review"] is not None:
+        st.badge(f"Approved AI draft · {state['review']['reviewer']}", icon=":material/verified:", color="green")
+    elif state["held"] is not None:
+        st.badge("AI draft—asset-manager review required", icon=":material/smart_toy:", color="orange")
+    else:
+        st.badge("No AI draft yet", icon=":material/smart_toy:", color="gray")
 
+
+def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
+                   warnings: pd.DataFrame) -> None:
+    """Hosted fictional demo only (overview): the Draft button and the retained findings, concisely."""
+    state = ai_state(store, ids, scope, label, month, warnings)
+    packet, held = state["packet"], state["held"]
     with st.container(border=True):
         head, badge = st.columns([3, 2], vertical_alignment="center")
         head.subheader("AI Briefing Draft", anchor=False,
@@ -908,11 +894,8 @@ def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, mont
                             "evidence, and possible causes stay unverified. The local company app never calls an "
                             "outside model.")
         with badge.container(horizontal=True, horizontal_alignment="right"):
-            if review is not None:
-                st.badge(f"Approved AI draft · {review['reviewer']}", icon=":material/verified:", color="green")
-            else:
-                st.badge("AI draft—asset-manager review required", icon=":material/smart_toy:", color="orange")
-        if stale:
+            ai_status_badge(state)
+        if state["stale"]:
             st.info("The previous AI draft (and any approval of it) was discarded because the imported data or the "
                     "selection changed.", icon=":material/restart_alt:")
         _, model = gemini_settings()
@@ -920,22 +903,18 @@ def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, mont
                    f"verified items for {label}, {month_label(month)} (not any workbook) to Google Gemini "
                    f"({model}, free tier). Fictional demo data only: Google may use free-tier requests to improve "
                    "its products.")
-        if st.button("Draft AI Briefing", icon=":material/auto_awesome:", key=f"ai_button_{packet_fp}"):
+        if st.button("Draft AI Briefing", icon=":material/auto_awesome:", key=f"ai_button_{state['packet_fp']}"):
             key, model = gemini_settings()
             try:
                 with st.spinner("Asking Gemini for a draft..."):
                     raw = ai_briefing.call_gemini(packet, key, model, hosted_demo=MODE["hosted_demo"],
                                                   workspace=workspace())
-                st.session_state.ai_draft = ai_briefing.validate(raw, packet, model, packet_fp)
+                st.session_state.ai_draft = ai_briefing.validate(raw, packet, model, state["packet_fp"])
                 st.rerun()
             except ai_briefing.AIError as error:
                 st.warning(error.message, icon=":material/warning:")
-        with st.expander("Evidence packet sent to the model"):
-            st.json(packet, expanded=False)
         if held is None:
             return
-
-        evidence = {e["id"]: e for e in packet["evidence"]}
         for column, (key, title) in zip(st.columns(3, gap="medium"), briefing.SECTIONS.items()):
             items = held.sections[key]
             with column, st.container(border=True):
@@ -946,41 +925,271 @@ def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, mont
                     label_text = "**Possible cause (unverified):** " if item["kind"] == ai_briefing.POSSIBLE_CAUSE else ""
                     st.markdown(label_text + md(item["text"]))
                     st.caption("Evidence: " + ", ".join(item["evidence"]))
-                cited = sorted({e for i in items for e in i["evidence"]}, key=lambda e: int(e[1:]))
-                if cited:
-                    with st.expander("Cited evidence"):
-                        for e in cited:
-                            st.markdown(md(f"**{e}:** {evidence[e]['text']}"))
-        st.caption(f"Drafted {when(held.created_at)} by {held.model}. {held.numbers_supported} of "
-                   f"{held.numbers_total} numbers in the reply matched the evidence they cite; items that didn't "
-                   "were removed.")
-        if held.removed:
-            with st.expander(f"Removed by validation ({len(held.removed)})"):
-                for section, text, reason in held.removed:
-                    st.markdown(md(f"- *{briefing.SECTIONS[section]}:* {text} **({reason})**"))
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.caption(f"Drafted {when(held.created_at)} by {held.model} · {len(held.removed)} claim(s) removed by "
+                       "validation. Cited evidence, removed claims and approval are on Review Log.")
+            link("review", "Review evidence and approve", ":material/fact_check:")
 
+
+def source_indicator(status: dict) -> None:
+    """Overview: one line on the source period and data quality; the full sourcing is on Review Log."""
+    quality = (f":orange[:material/warning: {status['warnings']} data-check warning(s)]" if status["warnings"]
+               else ":green[:material/check_circle: Data checks passed]")
+    with st.container(border=True, horizontal=True, vertical_alignment="center"):
+        st.markdown(f":material/fact_check: **Sources:** {month_label(status['month'])} (closed month) · "
+                    f"{status['reporting']} of {status['hotels']} hotel{'s' if status['hotels'] != 1 else ''} "
+                    f"reporting · {quality}")
+        link("review", "Sources and checks in Review Log", ":material/arrow_forward:")
+
+
+# ------------------------------------------------------------------------------------
+# Page: Review Log (Calculation & Evidence Log)
+# ------------------------------------------------------------------------------------
+
+def review_page() -> None:
+    store = current_store()
+    head, picker = st.columns([5, 7], vertical_alignment="top")
+    head.title("Calculation & Evidence Log")
+    if store is None:
+        st.info("Your local workspace has no property list yet. Open **Data Imports & Checks** to set it up.")
+        return
+    months = metrics.months_with_actuals(store.facts)
+    if not months:
+        st.info("No monthly actuals have been imported yet. Open **Data Imports & Checks** to import a file.")
+        return
+    with picker:
+        scope, month = filters(store.properties, months)          # same selection as Portfolio Overview
+    ids = metrics.property_ids_in_scope(store.properties, scope)
+    label = scope.label(store.properties)
+    warnings = store.active_warnings()
+    scoped = warnings[warnings["property_id"].isin(ids) & (warnings["month"] == month)]
+    summary = metrics.month_summary(store.facts, ids, month)
+    status = data_status(store, ids, month, months, summary, scoped)
+    head.markdown(f":material/calendar_month: **{month_label(month)}**  \n**{label}** · current view")
+    st.caption("A trace of the figures and evidence shown for this selection, rebuilt from the app's current data "
+               "each time the page opens. It is not a permanent audit trail."
+               + (" Hosted demo: everything here lasts for your browser session only." if MODE["hosted_demo"]
+                  else ""))
+    if workspace() == "demo":
+        st.badge("Demo · fictional data", icon=":material/science:", color="gray")
+
+    trace = trace_mod.calculation_trace(store.facts, store.properties, ids, month)
+    gaps = sum(bool(r["Missing inputs"]) for r in trace["rows"])
+    with st.expander(f"**1. How the numbers were calculated** · {len(trace['rows'])} key results"
+                     + (f" · {gaps} with missing inputs" if gaps else " · no missing inputs")):
+        calculation_section(store, ids, month, trace)
+    prov = trace_mod.provenance(store, ids, month)
+    with st.expander(f"**2. Sources and data checks** · {len(prov['files'])} file(s) · "
+                     f"{len(prov['warnings'])} warning(s)"):
+        sources_section(store, ids, month, status, prov, trace)
+    rule = briefing_state(store, ids, scope, label, month, warnings)
+    ai = ai_state(store, ids, scope, label, month, warnings) if ai_briefing.ai_allowed(
+        MODE["hosted_demo"], workspace()) else None
+    rule_word = "approved" if rule["review"] is not None else "draft"
+    ai_word = ("" if ai is None else " · AI: " + ("approved" if ai["review"] is not None
+                                                 else "draft" if ai["held"] is not None else "none yet"))
+    with st.expander(f"**3. Briefing evidence and review** · rule-based: {rule_word}{ai_word}", expanded=True):
+        evidence_section(store, scope, label, month, status, rule, ai)
+
+
+def calculation_section(store: DataStore, ids, month: str, trace: dict) -> None:
+    a, b = trace["summary"]["actual"], trace["summary"]["budget"]
+    if a is None:
+        st.info(f"No actual figures for this selection in {month_label(month)}, so nothing was calculated.")
+        return
+    st.caption("Results come from the dashboard's own calculations (hotels' figures added up first, then rates "
+               "divided). GOP and EBITDA are the reported figures, checked against their lines in the EBITDA "
+               "waterfall below. **Missing** means not supplied, never zero. " + trace["budget_note"])
+    table = pd.DataFrame(trace["rows"]).drop(columns="key")
+    st.dataframe(table, hide_index=True, width="stretch", column_config={
+        "Formula": st.column_config.TextColumn(width="medium"),
+        "Actual (inputs → result)": st.column_config.TextColumn(width="medium"),
+        "Budget (inputs → result)": st.column_config.TextColumn(width="medium")})
+
+    bridge = trace["bridge"]
+    st.markdown("**RevPAR variance split**")
+    if bridge is None:
+        st.caption("Not available: needs actual and budget occupancy and ADR.")
+    else:
+        st.caption(md(
+            f"Occupancy effect = ({pct(a['occupancy'])} − {pct(b['occupancy'])}) × budget ADR {money(b['adr'])} = "
+            f"{signed_money(bridge['occupancy_effect'])}. Rate effect = ({money(a['adr'])} − {money(b['adr'])}) × "
+            f"actual occupancy {pct(a['occupancy'])} = {signed_money(bridge['rate_effect'])}. Together "
+            f"{signed_money(bridge['total'])} = the RevPAR variance."))
+
+    st.markdown("**EBITDA waterfall**")
+    waterfall = trace["waterfall"]
+    if waterfall is None:
+        st.caption("Not available: the imported figures don't include every expense group.")
+    else:
+        steps = waterfall["steps"][["step", "amount", "end"]].rename(
+            columns={"step": "Step", "amount": "Amount", "end": "Running total"})
+        st.dataframe(steps, hide_index=True, width="stretch", column_config={
+            "Amount": st.column_config.NumberColumn(format="$%,.0f"),
+            "Running total": st.column_config.NumberColumn(format="$%,.0f")})
+        for name, calculated, supplied, gap in waterfall["checks"]:
+            if supplied is None:
+                st.caption(md(f"{name}: not supplied by every hotel; the bar is calculated from the lines "
+                              f"({money(calculated, 0)}) and can't be reconciled."))
+            else:
+                st.caption(md(f"{name}: the lines give {money(calculated, 0)}; reported {money(supplied, 0)} · "
+                              + ("✓ reconciles" if not gap else f"✗ difference {money(gap, 0)}, shown as its own step")))
+
+    st.markdown("**Inputs by hotel** (as imported)")
+    st.dataframe(trace_mod.inputs_by_hotel(store.facts, store.properties, ids, month), hide_index=True,
+                 width="stretch", column_config={
+                     "scenario": "Scenario", "property": "Property", "import_id": st.column_config.NumberColumn(
+                         "Import #", format="%d"),
+                     **{c: st.column_config.NumberColumn(d.label(c), format="%,.0f")
+                        for c in trace_mod.INPUT_COLUMNS}})
+    st.caption("Blank = not supplied by that hotel's file (not zero). Totals above add these up per scenario.")
+
+
+def sources_section(store: DataStore, ids, month: str, status: dict, prov: dict, trace: dict) -> None:
+    st.markdown(f"**Reporting period:** {month_label(month)} (closed month) · **Hotels reporting:** "
+                f"{status['reporting']} of {status['hotels']}")
+    for *_, detail in status["notices"]:
+        st.caption(md(detail))
+    st.markdown("**Files supplying these figures**")
+    if prov["files"].empty:
+        st.caption("No imported figures for this selection and month.")
+    else:
+        files = prov["files"].assign(**{"Imported at": prov["files"]["Imported at"].map(when)})
+        st.dataframe(files, hide_index=True, width="stretch")
+    st.markdown("**Coverage by hotel**")
+    st.dataframe(prov["coverage"], hide_index=True, width="stretch")
+    st.markdown("**Data-check warnings**")
+    if prov["warnings"].empty:
+        st.caption("None for these figures.")
+    else:
+        names = store.imports.set_index("import_id")["file_name"]
+        shown = prov["warnings"].assign(file=prov["warnings"]["import_id"].map(names))
+        st.dataframe(shown[["check", "message", "property_id", "sheet", "excel_row", "file"]], hide_index=True,
+                     width="stretch", column_config={
+                         "check": "Check", "message": st.column_config.TextColumn("Details", width="large"),
+                         "property_id": "Hotel", "sheet": "Sheet",
+                         "excel_row": st.column_config.NumberColumn("Excel row", format="%d"), "file": "File"})
+    st.markdown("**Reconciliation**")
+    waterfall = trace["waterfall"]
+    if waterfall is None:
+        st.caption("Not checked: the waterfall needs every expense group.")
+    else:
+        st.caption("EBITDA waterfall " + ("reconciles to the reported GOP and EBITDA." if waterfall["reconciles"]
+                                          else "does not fully reconcile; see section 1."))
+    st.markdown("**Separate sources in this view**")
+    extra = trace_mod.source_imports_in_view(store, ids, month)
+    if extra.empty:
+        st.caption("None (channel mix, pace, STR and debt files are imported separately).")
+    else:
+        st.dataframe(extra.assign(**{"Imported at": extra["Imported at"].map(when)}), hide_index=True,
+                     width="stretch")
+    st.markdown("**What can't be traced**")
+    st.markdown("\n".join(f"- {line}" for line in trace_mod.UNTRACEABLE))
+
+
+def evidence_section(store: DataStore, scope: metrics.Scope, label: str, month: str, status: dict, rule: dict,
+                     ai: dict | None) -> None:
+    review = rule["review"]
+    head, badge = st.columns([3, 2], vertical_alignment="center")
+    head.markdown("**Rule-based briefing**")
+    with badge.container(horizontal=True, horizontal_alignment="right"):
         if review is not None:
-            notes = "" if pd.isna(review["notes"]) else str(review["notes"])
-            st.success(f"AI draft approved by **{review['reviewer']}** on {when(review['reviewed_at'])}.")
-            text = ai_briefing.draft_markdown(held, packet, review["reviewer"], when(review["reviewed_at"]), notes)
-            st.download_button("Download approved AI draft (.md)", text, icon=":material/download:",
-                               file_name=f"ai_briefing_{re.sub(r'[^A-Za-z0-9]+', '_', label).strip('_')}_{month}.md",
-                               mime="text/markdown")
+            st.badge(f"Approved · {review['reviewer']}", icon=":material/verified:", color="green")
         else:
-            with st.form(f"ai_review_{held.fingerprint}"):
-                st.markdown("**Asset Manager Review of the AI Draft**")
-                name_col, notes_col = st.columns([1, 2])
-                reviewer = name_col.text_input("Reviewer name", key="ai_reviewer")
-                notes = notes_col.text_input("Notes to add (optional)", key="ai_notes")
-                confirmed = st.checkbox("I have checked each item against its cited evidence. Possible causes "
-                                        "remain unverified.", key="ai_confirmed")
-                submitted = st.form_submit_button("Approve AI draft", type="primary")
-            if submitted:
-                if not reviewer.strip() or not confirmed:
-                    st.error("Enter your name and tick the box to approve.")
-                else:
-                    store.add_review(f"ai:{scope_key(scope)}", month, held.fingerprint, reviewer.strip(), notes.strip())
-                    st.rerun()
+            st.badge("Draft · asset manager review required", icon=":material/edit_note:", color="orange")
+    st.caption("Written by fixed rules from the calculations in section 1. Each statement shows its source figures.")
+    for key, title in briefing.SECTIONS.items():
+        st.markdown(f"*{title}*")
+        for s in [s for s in rule["statements"] if s.section == key]:
+            tag = "Possible cause (unverified)" if s.kind == briefing.POSSIBLE_CAUSE else "Fact"
+            st.markdown(f"- **{tag}:** {md(s.text)}  \n  :gray[Source: {md(s.source)}]")
+    if review is not None:
+        notes = "" if pd.isna(review["notes"]) else str(review["notes"])
+        st.success(f"Approved for sharing by **{review['reviewer']}** on {when(review['reviewed_at'])}.")
+        text = briefing.to_markdown(rule["statements"], label, month, status["note"], review["reviewer"],
+                                    when(review["reviewed_at"]), notes, rule["summaries"])
+        st.download_button("Download approved briefing (.md)", text, mime="text/markdown", type="primary",
+                           file_name=f"briefing_{re.sub(r'[^A-Za-z0-9]+', '_', label).strip('_')}_{month}.md",
+                           icon=":material/download:")
+    else:
+        with st.form(f"review_{rule['fingerprint']}"):
+            st.markdown("**Asset Manager Review**")
+            name_col, notes_col = st.columns([1, 2])
+            reviewer = name_col.text_input("Reviewer name", key="rule_reviewer")
+            notes = notes_col.text_input("Notes to add (optional)", key="rule_notes")
+            confirmed = st.checkbox("I have checked these statements against the source figures. "
+                                    "Possible causes remain unverified.", key="rule_confirmed")
+            submitted = st.form_submit_button("Approve for sharing", type="primary")
+        if submitted:
+            if not reviewer.strip() or not confirmed:
+                st.error("Enter your name and tick the box to approve.")
+            else:
+                store.add_review(scope_key(scope), month, rule["fingerprint"], reviewer.strip(), notes.strip())
+                st.rerun()
+    st.caption("The approval is tied to these exact statements: if the figures change, the briefing returns to draft.")
+
+    st.divider()
+    head, badge = st.columns([3, 2], vertical_alignment="center")
+    head.markdown("**AI draft**")
+    if ai is None:
+        st.caption("Not available here: the local company app never calls an outside AI model.")
+        return
+    with badge.container(horizontal=True, horizontal_alignment="right"):
+        ai_status_badge(ai)
+    if ai["stale"]:
+        st.info("The previous AI draft (and any approval of it) was discarded because the imported data or the "
+                "selection changed.", icon=":material/restart_alt:")
+    held, packet = ai["held"], ai["packet"]
+    if held is None:
+        st.caption("No AI draft for this view. Use **Draft AI Briefing** on Portfolio Overview to create one; "
+                   "opening this page never calls the model.")
+        return
+    evidence = {e["id"]: e for e in packet["evidence"]}
+    st.caption(f"Drafted {when(held.created_at)} by {held.model}. Citations (E1, E2 ...) point to the app's "
+               "imported data and calculated evidence in the packet below, not to independent research by the "
+               f"model. {held.numbers_supported} of {held.numbers_total} numbers in the reply matched the evidence "
+               "they cite.")
+    for key, title in briefing.SECTIONS.items():
+        st.markdown(f"*{title}*")
+        items = held.sections[key]
+        if not items:
+            st.caption("No finding passed validation for this section.")
+        for item in items:
+            tag = "Possible cause (unverified)" if item["kind"] == ai_briefing.POSSIBLE_CAUSE else "Finding"
+            cited = "  \n".join(f"  :gray[{e}: {md(evidence[e]['text'])} · Source: "
+                                f"{md(evidence[e]['source'] or 'calculated evidence')}]" for e in item["evidence"])
+            st.markdown(f"- **{tag}:** {md(item['text'])}  \n{cited}")
+    st.markdown("**Removed by validation**")
+    if not held.removed:
+        st.caption("None.")
+    for section, text, reason in held.removed:
+        st.markdown(md(f"- *{briefing.SECTIONS[section]}:* {text} :gray[({reason})]"))
+    st.markdown("**Evidence packet sent to the model**")
+    st.json(packet, expanded=False)
+
+    review = ai["review"]
+    if review is not None:
+        notes = "" if pd.isna(review["notes"]) else str(review["notes"])
+        st.success(f"AI draft approved by **{review['reviewer']}** on {when(review['reviewed_at'])}.")
+        text = ai_briefing.draft_markdown(held, packet, review["reviewer"], when(review["reviewed_at"]), notes)
+        st.download_button("Download approved AI draft (.md)", text, icon=":material/download:", mime="text/markdown",
+                           file_name=f"ai_briefing_{re.sub(r'[^A-Za-z0-9]+', '_', label).strip('_')}_{month}.md")
+    else:
+        with st.form(f"ai_review_{held.fingerprint}"):
+            st.markdown("**Asset Manager Review of the AI Draft**")
+            name_col, notes_col = st.columns([1, 2])
+            reviewer = name_col.text_input("Reviewer name", key="ai_reviewer")
+            notes = notes_col.text_input("Notes to add (optional)", key="ai_notes")
+            confirmed = st.checkbox("I have checked each item against its cited evidence. Possible causes "
+                                    "remain unverified.", key="ai_confirmed")
+            submitted = st.form_submit_button("Approve AI draft", type="primary")
+        if submitted:
+            if not reviewer.strip() or not confirmed:
+                st.error("Enter your name and tick the box to approve.")
+            else:
+                store.add_review(f"ai:{scope_key(scope)}", month, held.fingerprint, reviewer.strip(), notes.strip())
+                st.rerun()
+    st.caption("The AI draft and its approval are discarded when the imports or the selection change.")
 
 
 def ai_evaluation_page() -> None:
@@ -1359,6 +1568,7 @@ def main(hosted_demo: bool = False) -> None:
     PAGES.update(
         overview=st.Page(overview_page, title="Portfolio Overview", icon=":material/space_dashboard:", default=True),
         imports=st.Page(imports_page, title="Data Imports & Checks", icon=":material/upload_file:", url_path="imports"),
+        review=st.Page(review_page, title="Review Log", icon=":material/fact_check:", url_path="review-log"),
         definitions=st.Page(definitions_page, title="Definitions", icon=":material/menu_book:", url_path="definitions"),
         signals=st.Page(signals_page, title="Today's Signals (Planned)", icon=":material/schedule:", url_path="signals"),
         # Detail views: not in the top menu; opened from the preview boxes on the overview.
