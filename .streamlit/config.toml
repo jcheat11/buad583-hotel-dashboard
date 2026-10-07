@@ -10,6 +10,8 @@ gatherUsageStats = false
 address = "localhost"
 # Skip Streamlit's first-run email prompt. run_app.bat opens the browser instead.
 headless = true
+# Serve the bundled font files in static/fonts/ from the app itself (no font service, works offline).
+enableStaticServing = true
 
 # Torchfolio scheme: black with the logo's flame orange (#FF6F00) as the accent, on neutral greys.
 # (Oct 2026: navy replaced with black, then mustard yellow with orange, to match the Torchfolio logo.)
@@ -27,9 +29,14 @@ borderColor = "#D4D4D4"
 dataframeHeaderBackgroundColor = "#EBEBEB"
 baseRadius = "medium"
 baseFontSize = 17
-headingFontWeights = [400, 700, 700, 700, 700, 700]   # page titles regular weight
+# Typography: Space Grotesk for titles and headings, Inter for everything else (static/fonts/,
+# SIL Open Font License; see static/fonts/OFL-*.txt). Bundled, so nothing is fetched at runtime.
+font = "Inter, sans-serif"
+headingFont = "Space Grotesk, Inter, sans-serif"
+headingFontWeights = [400, 600, 600, 600, 600, 600]   # page titles regular; headings semibold
 headingFontSizes = ["2.6rem", "1.9rem", "1.35rem", "1.2rem", "1rem", "0.9rem"]
 metricValueFontWeight = 700
+metricValueFontSize = "1.8rem"   # fits four KPI cards across on narrower laptop/tablet widths
 # Status colours (badges): distinct fills with dark text; every status also has a word and a symbol.
 greenBackgroundColor = "#DCF1E3"
 greenTextColor = "#14532D"
@@ -44,6 +51,25 @@ grayBackgroundColor = "#EBEBEB"
 grayTextColor = "#4D4D4D"
 blueBackgroundColor = "#EEEEEE"
 blueTextColor = "#111111"
+
+# Variable fonts: one file covers every weight in the range.
+[[theme.fontFaces]]
+family = "Inter"
+url = "app/static/fonts/Inter-Variable.ttf"
+weight = "100 900"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "app/static/fonts/Inter-Italic-Variable.ttf"
+weight = "100 900"
+style = "italic"
+
+[[theme.fontFaces]]
+family = "Space Grotesk"
+url = "app/static/fonts/SpaceGrotesk-Variable.ttf"
+weight = "300 700"
+style = "normal"
 
 [theme.sidebar]
 backgroundColor = "#111111"

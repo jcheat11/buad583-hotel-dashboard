@@ -163,6 +163,9 @@ hotel_dashboard/
   demo.py                  loads the fictional demo workspace
 sample_data/               fictional hotels, monthly files, TEMPLATE_* and DEMO_* source files (safe to share)
 packaging/                 portable Windows demo build and its tests
+static/fonts/              bundled typefaces: Inter (body) and Space Grotesk (headings), SIL Open Font
+                           License (OFL-*.txt); served by the app itself, so nothing loads from a font service
+assets/                    the Torchfolio logo
 scripts/make_sample_data.py  regenerates the fictional files
 tests/                     automated tests (fictional data only)
 local_data/                YOUR real data; created when you set it up; never shared

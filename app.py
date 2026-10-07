@@ -511,7 +511,8 @@ def attention_panel(store: DataStore, map_ids, month: str, warnings: pd.DataFram
             symbol, fill, ink = STATUS_STYLE[status]
             chips.append(
                 f'<div style="background:{fill};color:{ink};border-radius:10px;padding:6px 14px;min-width:120px">'
-                f'<div style="font-size:1.7rem;font-weight:800;line-height:1.1">{int(counts.get(status, 0))}</div>'
+                f'<div style="font-size:1.7rem;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums">'
+                f'{int(counts.get(status, 0))}</div>'
                 f'<div style="font-weight:700">{symbol} {metrics.STATUS_WORDS[status]}</div>'
                 f'<div style="font-size:0.8rem">{STATUS_MEANING.get(status, "no figures to compare")}</div></div>')
         st.html(f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 6px">{"".join(chips)}</div>')
@@ -948,7 +949,7 @@ def source_indicator(status: dict) -> None:
 
 def review_page() -> None:
     store = current_store()
-    head, picker = st.columns([5, 7], vertical_alignment="top")
+    head, picker = st.columns([7, 5], vertical_alignment="top")    # room for the title on one line
     head.title("Calculation & Evidence Log")
     if store is None:
         st.info("Your local workspace has no property list yet. Open **Data Imports & Checks** to set it up.")
@@ -1580,6 +1581,11 @@ def main(hosted_demo: bool = False) -> None:
         PAGES["ai_eval"] = st.Page(ai_evaluation_page, title="AI Evaluation", url_path="ai-evaluation",
                                    visibility="hidden")
     navigation = st.navigation(list(PAGES.values()), position="top")
+    # Fonts come from the theme (.streamlit/config.toml). The theme has no setting for these two, so a small
+    # style rule adds them: headings break into balanced lines (no single word left alone), and the KPI
+    # figures use Inter's tabular (equal-width) digits so they don't shift when the selection changes.
+    st.html("<style>h1,h2,h3{text-wrap:balance}"
+            "[data-testid='stMetricValue'],[data-testid='stMetricDelta']{font-variant-numeric:tabular-nums}</style>")
     sidebar()
     navigation.run()
 

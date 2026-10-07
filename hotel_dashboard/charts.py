@@ -29,11 +29,12 @@ INK = "#111111"
 MUTED = "#666666"             # grey text
 GRID = "#E8E8E8"
 AXIS = "#C8C8C8"
-FONT = "Source Sans Pro, sans-serif"
+FONT = "Inter, sans-serif"      # bundled with the app (static/fonts), same as the theme's body font
 
 
 def _finish(chart, height: int, title: str | None = None):
-    chart = chart.properties(width="container", height=height)
+    # A little padding so axis labels in the (wider) Inter font are never clipped at the edges.
+    chart = chart.properties(width="container", height=height, padding={"left": 8, "right": 6, "top": 4, "bottom": 4})
     if title:
         chart = chart.properties(title=alt.TitleParams(title, anchor="start", fontSize=15, fontWeight=700,
                                                        color=NAVY, offset=10))
@@ -149,7 +150,7 @@ def bridge_chart(steps: pd.DataFrame):
 # --- EBITDA waterfall ----------------------------------------------------------------------------
 
 WATERFALL_KINDS = {
-    "total": ("Revenue, GOP, EBITDA", NAVY),
+    "total": ("Totals", NAVY),
     "operating": ("Operating expenses", OPERATING_COST),
     "below_gop": ("Below-GOP expenses", BELOW_GOP_COST),
     "difference": ("Difference to reported figure", ORANGE),
@@ -172,14 +173,14 @@ def waterfall_chart(steps: pd.DataFrame):
     kinds = [k for k in WATERFALL_KINDS if k in set(df["kind"])]
     y = alt.Y("step:N", sort=list(df["step"]), title=None,
               axis=alt.Axis(labelLimit=210, labelColor=INK, labelFontSize=13, ticks=False, domain=False))
-    x = alt.X("x0:Q", title=None, scale=alt.Scale(domain=[min(0.0, df["x0"].min()), top * 1.18], nice=False),
+    x = alt.X("x0:Q", title=None, scale=alt.Scale(domain=[min(0.0, df["x0"].min()), top * 1.45], nice=False),
               axis=alt.Axis(format="$.2s", gridColor=GRID, tickCount=5, domain=False, ticks=False))
     bars = alt.Chart(df).mark_bar(size=18, cornerRadius=2).encode(
         y=y, x=x, x2="x1:Q",
         color=alt.Color("what:N", title=None,
                         scale=alt.Scale(domain=[WATERFALL_KINDS[k][0] for k in kinds],
                                         range=[WATERFALL_KINDS[k][1] for k in kinds]),
-                        legend=alt.Legend(orient="top", columns=2, symbolType="square")),
+                        legend=alt.Legend(orient="top", columns=1, symbolType="square")),
         stroke=alt.condition(alt.datum.kind == "difference", alt.value(INK), alt.value(None)),
         tooltip=[alt.Tooltip("step:N", title="Line"), alt.Tooltip("amount_text:N", title="Amount"),
                  alt.Tooltip("running_text:N", title="Running total")])
@@ -200,7 +201,7 @@ def revenue_mix_chart(table: pd.DataFrame):
               axis=alt.Axis(labelColor=INK, labelFontSize=13, ticks=False, domain=False, labelLimit=170))
     bars = alt.Chart(df).mark_bar(size=18, color=ACTUAL_COLOR, cornerRadiusEnd=4).encode(
         y=y, x=alt.X("revenue:Q", title=None, scale=alt.Scale(domain=[0, df["revenue"].max() * 1.45], nice=False),
-                     axis=alt.Axis(format="$.2s", gridColor=GRID, tickCount=4, domain=False, ticks=False)),
+                     axis=alt.Axis(format="$.2s", gridColor=GRID, tickCount=3, domain=False, ticks=False)),
         tooltip=[alt.Tooltip("channel:N", title="Channel"), alt.Tooltip("revenue:Q", title="Room revenue", format="$,.0f")])
     labels = alt.Chart(df).mark_text(align="left", dx=6, fontSize=13, color=INK).encode(
         y=y, x="revenue:Q", text="label:N")
@@ -234,27 +235,30 @@ def revenue_chart(rows: pd.DataFrame):
 # --- Largest expense variances --------------------------------------------------------------------
 
 def expense_chart(rows: pd.DataFrame):
-    """Actual minus budget per expense line: right (red) = over budget, left (green) = under budget."""
+    """
+    Actual minus budget per expense line: right (red) = over budget, left (green) = under budget.
+    Every value label sits to the right of the zero line, where there is always room, so labels never
+    collide with the line names on narrow screens.
+    """
     df = rows.copy()
-    reach = max(df["difference"].abs().max(), 1.0) * 3.2
+    largest = max(df["difference"].abs().max(), 1.0)
+    df["label_x"] = df["difference"].clip(lower=0)
     df["label"] = [f"{signed_short(v)} ({p * 100:+.1f}%)" for v, p in zip(df["difference"], df["percent"])]
     df["what"] = ["Over budget" if over else "Under budget" for over in df["over_budget"]]
     y = alt.Y("line:N", title=None, sort=list(df["line"]),
               axis=alt.Axis(labelColor=INK, labelFontSize=13, ticks=False, domain=False, labelLimit=170))
-    x = alt.X("difference:Q", title=None, scale=alt.Scale(domain=[-reach, reach], nice=False),
+    x = alt.X("difference:Q", title=None, scale=alt.Scale(domain=[-largest * 1.15, largest * 3.6], nice=False),
               axis=alt.Axis(format="$.2s", gridColor=GRID, tickCount=5, domain=False, ticks=False))
     bars = alt.Chart(df).mark_bar(size=18, cornerRadius=2).encode(
         y=y, x=x,
         color=alt.Color("what:N", title=None,
                         scale=alt.Scale(domain=["Over budget", "Under budget"],
                                         range=[UNFAVORABLE, FAVORABLE]),
-                        legend=alt.Legend(orient="top", columns=2, symbolType="square")),
+                        legend=alt.Legend(orient="top", columns=1, symbolType="square")),
         tooltip=[alt.Tooltip("line:N", title="Line"), alt.Tooltip("actual:Q", title="Actual", format="$,.0f"),
                  alt.Tooltip("budget:Q", title="Budget", format="$,.0f"),
                  alt.Tooltip("difference:Q", title="Actual - budget", format="$,.0f")])
     zero = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(color=AXIS).encode(x="x:Q")
-    right = alt.Chart(df[df["difference"] >= 0]).mark_text(align="left", dx=5, fontSize=13, color=INK).encode(
-        y=y, x="difference:Q", text="label:N")
-    left = alt.Chart(df[df["difference"] < 0]).mark_text(align="right", dx=-5, fontSize=13, color=INK).encode(
-        y=y, x="difference:Q", text="label:N")
-    return _finish(alt.layer(bars, zero, right, left), height=36 * len(df) + 40)
+    labels = alt.Chart(df).mark_text(align="left", dx=5, fontSize=13, color=INK).encode(
+        y=y, x="label_x:Q", text="label:N")
+    return _finish(alt.layer(bars, zero, labels), height=36 * len(df) + 50)

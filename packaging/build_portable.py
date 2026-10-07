@@ -34,7 +34,7 @@ PY_SRC = Path(sys.base_prefix)                    # the Python installed on this
 
 # Parts of the app to copy. Nothing else from the project is included.
 APP_FILES = ["app.py", "demo_app.py", ".streamlit/config.toml"]
-APP_FOLDERS = ["hotel_dashboard", "sample_data"]
+APP_FOLDERS = ["hotel_dashboard", "sample_data", "assets", "static"]   # static/fonts: bundled typefaces
 
 # Parts of Python's standard library the dashboard never uses (tests, IDLE, Tk windows, pip).
 STDLIB_SKIP = {"site-packages", "test", "idlelib", "tkinter", "turtledemo", "ensurepip", "__pycache__"}
