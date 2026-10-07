@@ -8,7 +8,7 @@ Two modes:
   - Local company app (app.py, run_app.bat): runs on this computer, keeps real data in local_data/,
     needs no internet connection and never calls an outside AI model.
   - Hosted fictional demo (demo_app.py, Streamlit Community Cloud): dummy uploads are processed on
-    Streamlit's servers for the visitor's session only; "Draft AI Briefing" sends a small fictional
+    Streamlit's servers for the visitor's session only; "Draft with AI" sends a small fictional
     evidence packet to Google Gemini when clicked (see hotel_dashboard/ai_briefing.py).
 
 This file only draws the screens. The logic lives in hotel_dashboard/:
@@ -147,7 +147,7 @@ def sidebar() -> None:
         if MODE["hosted_demo"]:
             st.markdown("**Hosted test copy**")
             st.caption("Fictional or dummy data only. Uploads are processed on Streamlit's servers for your "
-                       "browser session and never saved. **Draft AI Briefing** sends a small fictional evidence "
+                       "browser session and never saved. **Draft with AI** sends a small fictional evidence "
                        "packet to Google Gemini when clicked. The company app runs locally and never calls an "
                        "outside model.")
             return
@@ -214,9 +214,7 @@ def overview_page() -> None:
     # The map lists the hotels in the selected group, or the whole portfolio when one hotel is selected.
     attention_panel(store, map_ids_for(scope, ids, properties), month, warnings, scope)
     forward_panels(store, scope, ids, month)
-    briefing_section(store, ids, scope, label, month, warnings)       # cards + status; review on Review Log
-    if ai_briefing.ai_allowed(MODE["hosted_demo"], workspace()):     # never in the local company-data app
-        ai_draft_panel(store, ids, scope, label, month, warnings)
+    briefing_panel(store, ids, scope, label, month, warnings)         # one panel; evidence and review on Review Log
     source_indicator(status)   # brief source / data-quality line; full sourcing on Review Log
 
 
@@ -824,29 +822,94 @@ def ai_state(store: DataStore, ids, scope: metrics.Scope, label: str, month: str
     return {"packet": packet, "packet_fp": packet_fp, "held": held, "stale": stale, "review": review}
 
 
-def briefing_section(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
-                     warnings: pd.DataFrame) -> None:
-    """Overview: the three concise cards and their status. Evidence and approval are on Review Log."""
-    state = briefing_state(store, ids, scope, label, month, warnings)
-    review = state["review"]
+AI_DRAFT_LABEL = "AI draft — asset manager review required"
+
+
+def has_findings(draft) -> bool:
+    """A usable AI draft: at least one finding survived validation."""
+    return draft is not None and any(draft.sections[key] for key in briefing.SECTIONS)
+
+
+def briefing_panel(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
+                   warnings: pd.DataFrame) -> None:
+    """
+    Overview: one Briefing panel. It shows the rule-based summary unless a validated AI draft exists for
+    this exact selection, month and imported data (hosted fictional demo only, made only on a click).
+    The two have separate approvals; evidence, review and downloads for both are on Review Log.
+    """
+    rule = briefing_state(store, ids, scope, label, month, warnings)
+    allowed = ai_briefing.ai_allowed(MODE["hosted_demo"], workspace())   # never in the local company-data app
+    ai = ai_state(store, ids, scope, label, month, warnings) if allowed else None
     with st.container(border=True):
-        head, badge = st.columns([3, 2], vertical_alignment="center")
-        head.subheader("Management Briefing", anchor=False)
+        head, badge = st.columns([1, 2], vertical_alignment="center")
+        head.subheader("Briefing", anchor=False)
+        notice = None
+        if allowed:
+            notice = ai_draft_controls(ai, label, month)          # the click is handled before anything is shown
+        held = ai["held"] if ai else None
+        show_ai = has_findings(held)
         with badge.container(horizontal=True, horizontal_alignment="right"):
-            if review is not None:
-                st.badge(f"Approved · {review['reviewer']}", icon=":material/verified:", color="green")
+            if show_ai:
+                ai_status_badge(ai)
+            elif rule["review"] is not None:
+                st.badge(f"Approved · {rule['review']['reviewer']}", icon=":material/verified:", color="green")
             else:
                 st.badge("Draft · asset manager review required", icon=":material/edit_note:", color="orange")
+        if ai and ai["stale"]:
+            st.info("The AI draft (and any approval of it) was discarded because the imported data or the selection "
+                    "changed. Showing the rule-based summary.", icon=":material/restart_alt:")
+        if notice:
+            st.warning(notice, icon=":material/warning:")
+
         for column, (key, title) in zip(st.columns(3, gap="medium"), briefing.SECTIONS.items()):
-            headline, sentence = state["summaries"][key]
             with column, st.container(border=True):
                 st.caption(title)
-                st.markdown(f"#### {md(headline)}")
-                st.markdown(md(sentence))
+                if show_ai:
+                    items = held.sections[key]
+                    if items:
+                        st.markdown(ai_bullets(items))
+                    else:
+                        st.caption("No item passed validation for this section.")
+                else:
+                    headline, sentence = rule["summaries"][key]
+                    st.markdown(f"#### {md(headline)}")
+                    st.markdown(md(sentence))
         with st.container(horizontal=True, vertical_alignment="center"):
-            st.caption(f"{label} · {month_label(month)} · written by fixed rules from the verified figures; no AI. "
-                       "Evidence, sources, approval and download are on Review Log.")
-            link("review", "Review evidence and approve", ":material/fact_check:")
+            if show_ai:
+                st.caption(f"{label} · {month_label(month)} · AI draft by {held.model}, {when(held.created_at)}, from "
+                           f"verified evidence · {len(held.removed)} claim(s) removed by validation. It needs its own "
+                           "approval, separate from the rule-based summary's; evidence and approval are on Review Log.")
+                link("review", "Review AI evidence and approve", ":material/fact_check:")
+            else:
+                st.caption(f"{label} · {month_label(month)} · rule-based summary written by fixed rules from the "
+                           "verified figures; no AI. Evidence, sources, approval and download are on Review Log.")
+                link("review", "Review evidence and approve", ":material/fact_check:")
+
+
+def ai_draft_controls(ai: dict, label: str, month: str) -> str | None:
+    """Hosted demo: the Draft with AI button. Returns a message when the call or its validation fails."""
+    packet = ai["packet"]
+    _, model = gemini_settings()
+    with st.container(horizontal=True, vertical_alignment="center"):
+        clicked = st.button("Draft with AI", icon=":material/auto_awesome:", key=f"ai_button_{ai['packet_fp']}",
+                            help="Optional, hosted fictional demo only. The model is called only when you click.")
+        st.caption(f"Sends {len(packet['evidence'])} verified evidence items for {label}, {month_label(month)} (not "
+                   f"any workbook) to Google Gemini ({model}, free tier); fictional data only, and Google may use "
+                   "free-tier requests to improve its products.")
+    if not clicked:
+        return None
+    key, model = gemini_settings()
+    try:
+        with st.spinner("Asking Gemini for a draft..."):
+            raw = ai_briefing.call_gemini(packet, key, model, hosted_demo=MODE["hosted_demo"], workspace=workspace())
+    except ai_briefing.AIError as error:
+        return error.message
+    draft = ai_briefing.validate(raw, packet, model, ai["packet_fp"])
+    if not has_findings(draft):
+        return (f"The AI draft failed validation: all {len(draft.removed)} claim(s) were removed (missing or unknown "
+                "evidence, or numbers not in the cited evidence). The briefing below is unchanged.")
+    st.session_state.ai_draft = draft
+    st.rerun()
 
 
 def gemini_settings() -> tuple[str | None, str]:
@@ -861,7 +924,7 @@ def ai_status_badge(state: dict) -> None:
     if state["review"] is not None:
         st.badge(f"Approved AI draft · {state['review']['reviewer']}", icon=":material/verified:", color="green")
     elif state["held"] is not None:
-        st.badge("AI draft—asset-manager review required", icon=":material/smart_toy:", color="orange")
+        st.badge(AI_DRAFT_LABEL, icon=":material/smart_toy:", color="orange")
     else:
         st.badge("No AI draft yet", icon=":material/smart_toy:", color="gray")
 
@@ -870,54 +933,6 @@ def ai_bullets(items: list) -> str:
     """The validated findings of one section as a short bullet list (the model returns plain sentences)."""
     return "\n".join("- " + ("**Possible cause (unverified):** " if item["kind"] == ai_briefing.POSSIBLE_CAUSE
                              else "") + md(ai_briefing.plain_text(item["text"])) for item in items)
-
-
-def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
-                   warnings: pd.DataFrame) -> None:
-    """Hosted fictional demo only (overview): the Draft button and the retained findings, concisely."""
-    state = ai_state(store, ids, scope, label, month, warnings)
-    packet, held = state["packet"], state["held"]
-    with st.container(border=True):
-        head, badge = st.columns([3, 2], vertical_alignment="center")
-        head.subheader("AI Briefing Draft", anchor=False,
-                       help="Hosted fictional demo only. Gemini rewrites the verified evidence into the three "
-                            "briefing sections. Every item must cite evidence, every number must appear in that "
-                            "evidence, and possible causes stay unverified. The local company app never calls an "
-                            "outside model.")
-        with badge.container(horizontal=True, horizontal_alignment="right"):
-            ai_status_badge(state)
-        if state["stale"]:
-            st.info("The previous AI draft (and any approval of it) was discarded because the imported data or the "
-                    "selection changed.", icon=":material/restart_alt:")
-        _, model = gemini_settings()
-        st.caption(f"Optional. Clicking the button sends a compact evidence packet of {len(packet['evidence'])} "
-                   f"verified items for {label}, {month_label(month)} (not any workbook) to Google Gemini "
-                   f"({model}, free tier). Fictional demo data only: Google may use free-tier requests to improve "
-                   "its products.")
-        if st.button("Draft AI Briefing", icon=":material/auto_awesome:", key=f"ai_button_{state['packet_fp']}"):
-            key, model = gemini_settings()
-            try:
-                with st.spinner("Asking Gemini for a draft..."):
-                    raw = ai_briefing.call_gemini(packet, key, model, hosted_demo=MODE["hosted_demo"],
-                                                  workspace=workspace())
-                st.session_state.ai_draft = ai_briefing.validate(raw, packet, model, state["packet_fp"])
-                st.rerun()
-            except ai_briefing.AIError as error:
-                st.warning(error.message, icon=":material/warning:")
-        if held is None:
-            return
-        for column, (key, title) in zip(st.columns(3, gap="medium"), briefing.SECTIONS.items()):
-            items = held.sections[key]
-            with column, st.container(border=True):
-                st.caption(title)
-                if not items:
-                    st.caption("No item passed validation for this section.")
-                else:
-                    st.markdown(ai_bullets(items))
-        with st.container(horizontal=True, vertical_alignment="center"):
-            st.caption(f"Drafted {when(held.created_at)} by {held.model} · {len(held.removed)} claim(s) removed by "
-                       "validation. Cited evidence, removed claims and approval are on Review Log.")
-            link("review", "Review evidence and approve", ":material/fact_check:")
 
 
 def source_indicator(status: dict) -> None:
@@ -1130,7 +1145,7 @@ def evidence_section(store: DataStore, scope: metrics.Scope, label: str, month: 
                 "selection changed.", icon=":material/restart_alt:")
     held, packet = ai["held"], ai["packet"]
     if held is None:
-        st.caption("No AI draft for this view. Use **Draft AI Briefing** on Portfolio Overview to create one; "
+        st.caption("No AI draft for this view. Use **Draft with AI** in the Briefing panel on Portfolio Overview to create one; "
                    "opening this page never calls the model.")
         return
     evidence = {e["id"]: e for e in packet["evidence"]}
@@ -1491,7 +1506,7 @@ def review_file(store: DataStore, route: str, file_name: str, raw: bytes, sample
                                           "status.")
                 st.session_state.next_import_year = int(max(result.rows["month"])[:4])
                 if ai_briefing.ai_allowed(MODE["hosted_demo"], workspace()):
-                    st.session_state.flash += (" **Draft AI Briefing** is available under the Management Briefing "
+                    st.session_state.flash += (" **Draft with AI** is available in the Briefing panel "
                                                "on Portfolio Overview.")
             else:
                 import_id = store.add_source_import(route, result, replace=replace)
@@ -1811,7 +1826,7 @@ def definitions_page() -> None:
         "- Fictional or dummy data only. Uploads are processed on Streamlit's servers, in memory, for each "
         "visitor's session; nothing is saved and visitors can't see each other's data.\n"
         "- Only the six fictional hotels are accepted, and .xlsm workbooks are refused.\n"
-        "- **Draft AI Briefing** (button only) sends a small evidence packet of verified figures, never a "
+        "- **Draft with AI** (button only) sends a small evidence packet of verified figures, never a "
         "workbook, to Google Gemini on the free tier, where Google may use requests to improve its products.\n\n"
         "Streamlit's usage statistics are switched off in `.streamlit/config.toml` in both modes.")
 

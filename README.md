@@ -12,7 +12,7 @@ short written briefing that an asset manager must approve before it can be share
   outside AI model**. The briefing is written by fixed rules.
 - **Hosted fictional demo** (`demo_app.py` on Streamlit Community Cloud, invited viewers only):
   fictional or dummy data only. Uploads are processed on Streamlit's servers, in memory, for each
-  visitor's session. The optional **Draft AI Briefing** button sends a small evidence packet of
+  visitor's session. The optional **Draft with AI** button sends a small evidence packet of
   verified, fictional figures (never a workbook) to Google Gemini on the free tier, where Google
   may use requests to improve its products.
 
@@ -71,8 +71,8 @@ the sidebar, which starts collapsed: open it with the **>>** button at the top l
    **Show all properties** switches back.
 7. Choose **Property group → Asset Cohort → Legacy Assets**. Mesa Suites is also in
    *LivAway Suites* (brand) and *Stabilized Properties* (stage), but each view counts it once.
-8. At the bottom, the **Management Briefing** has three short cards (*What Changed*, *Why It Matters*,
-   *What Needs a Decision*), each a headline and one sentence. Evidence, sources, possible causes
+8. At the bottom, the **Briefing** panel has three short cards (*What Changed*, *Why It Matters*,
+   *What Needs a Decision*), each a headline and one sentence, written by fixed rules. Evidence, sources, possible causes
    (marked *unverified*) and the **Approve for sharing** form are on **Review Log**; the download
    appears only after approval.
 9. The three **Forward-Looking and Market Context** boxes say *Pace / Debt / STR data needed*. On
@@ -198,17 +198,19 @@ rejected as unknown properties); .xlsm workbooks are refused; uploads are proces
 Streamlit's servers for that visitor's session only (nothing is saved; visitors can't see each
 other's data). The Data Imports page offers the fictional sample files as a zip to edit and re-upload.
 
-**Draft AI Briefing (hosted demo only).** Under the rule-based Management Briefing, a button asks
+**Draft with AI (hosted demo only).** In the Briefing panel on Portfolio Overview, a button asks
 Google Gemini (`gemini-3.5-flash-lite`, free tier) to draft the same three sections from an
 *evidence packet*: the rule-based briefing's verified statements, the exception flags, and the
 data-check and reconciliation results, each with an ID (E1, E2, ...). The workbook is never sent.
 The reply is validated before it is shown: every item must cite existing evidence IDs, every
 number must appear in the evidence it cites (otherwise the item is removed and listed), and
-possible causes are labelled *unverified*. The draft is marked *AI draft—asset-manager review
-required*, needs its own approval before it can be downloaded, and is discarded (with its
-approval) when the imports or the Show / Month selection change. The model is only called when
-the button is clicked. A missing key, the free-tier limit or a model failure shows a message; the
-dashboard and the rule-based briefing keep working. The local company app has no AI button and
+possible causes are labelled *unverified*. A draft with at least one validated finding replaces the
+rule-based cards in the same panel, shown as short bullets and marked *AI draft — asset manager
+review required*. It needs its own approval on Review Log before it can be downloaded (approving
+the rule-based summary does not approve it), and it is discarded (with its approval) when the
+imports or the Show / Month selection change; the panel then returns to the rule-based summary. The model is only called when
+the button is clicked. A missing key, the free-tier limit, a model failure or a draft
+that fails validation shows a message and leaves the briefing unchanged. The local company app has no AI button and
 refuses outside AI calls in code (`hotel_dashboard/ai_briefing.py`, `ai_allowed`).
 The hidden page `/ai-evaluation` runs four fictional cases (normal, adverse, missing data,
 reconciliation error) through the AI and the rule-based briefing and scores them.

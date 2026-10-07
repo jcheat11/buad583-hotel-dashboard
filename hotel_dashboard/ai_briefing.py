@@ -46,15 +46,14 @@ class AIError(Exception):
     MESSAGES = {
         "disabled": "AI drafting is switched off here: the local company-data app never sends data to an outside model.",
         "missing_key": "AI drafting isn't set up yet: the app has no GEMINI_API_KEY in its Streamlit secrets. "
-                       "The rule-based briefing above is unaffected.",
+                       "The briefing below is unchanged.",
         "bad_key": "The Gemini API key was refused (invalid, or not allowed to use this model). Check the key in "
-                   "the app's Streamlit secrets. The rule-based briefing above is unaffected.",
-        "quota": "The free Gemini quota is used up for now (rate or daily limit). Try again later; the rule-based "
-                 "briefing above is unaffected.",
-        "failure": "The AI model didn't respond successfully. Try again later; the rule-based briefing above is "
-                   "unaffected.",
+                   "the app's Streamlit secrets. The briefing below is unchanged.",
+        "quota": "The free Gemini quota is used up for now (rate or daily limit). Try again later; the briefing "
+                 "below is unchanged.",
+        "failure": "The AI model didn't respond successfully. Try again later; the briefing below is unchanged.",
         "invalid_response": "The AI model's reply couldn't be read as a briefing, so nothing was shown. Try again; "
-                            "the rule-based briefing above is unaffected.",
+                            "the briefing below is unchanged.",
     }
 
     def __init__(self, code: str, detail: str = ""):

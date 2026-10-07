@@ -126,7 +126,7 @@ class ReviewPageTests(unittest.TestCase):
         with mock.patch(POST) as post:
             at = session().run()
         self.assertIn("never calls an outside AI model", page_text(at))
-        self.assertFalse([b for b in at.button if b.label == "Draft AI Briefing"])
+        self.assertFalse([b for b in at.button if b.label == "Draft with AI"])
         post.assert_not_called()
 
     def test_rule_based_approval_needs_name_and_confirmation_then_goes_stale(self):
@@ -160,7 +160,7 @@ class ReviewPageTests(unittest.TestCase):
         at = session(store, page="overview", hosted=True, key="test-key")
         with mock.patch(POST, side_effect=echo_model) as post:
             at.run()
-            next(b for b in at.button if b.label == "Draft AI Briefing").click().run()
+            next(b for b in at.button if b.label == "Draft with AI").click().run()
             self.assertFalse([b for b in at.button if b.label == "Approve AI draft"])   # not on the overview
             go(at, "review")
             self.assertEqual(post.call_count, 1)                        # opening Review Log calls nothing

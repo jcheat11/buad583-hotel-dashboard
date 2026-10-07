@@ -189,6 +189,29 @@ def page_text(at) -> str:
     return "\n".join(str(p) for p in parts).replace("\\$", "$")
 
 
+AI_LABEL = "AI draft — asset manager review required"
+RULE_LABEL = "Draft · asset manager review required"
+
+
+def rule_headlines(store=None):
+    """The rule-based card headlines for the hosted demo's default view (all properties, July 2026)."""
+    from hotel_dashboard import briefing
+    store = store or build_demo_store()
+    ids = list(store.properties["property_id"])
+    cards = briefing.card_summaries(store.facts, store.properties, ids, "2026-07", store.active_warnings())
+    return [headline for headline, _ in cards.values()]
+
+
+def invented_only(url, **kwargs):
+    """A reply where every claim has a number that is not in its evidence: nothing survives validation."""
+    packet = json.loads(kwargs["json"]["contents"][0]["parts"][0]["text"])
+    draft = faithful_draft(packet)
+    for items in draft.values():
+        for item in items:
+            item["text"] = "Results moved 99.9% to $512.34."
+    return response(200, gemini_reply(draft))
+
+
 class ScreenTests(unittest.TestCase):
     def open(self, key="test-key"):
         at = AppTest.from_function(hosted_app, default_timeout=120)
@@ -199,27 +222,118 @@ class ScreenTests(unittest.TestCase):
     def button(self, at, label):
         return next(b for b in at.button if b.label == label)
 
-    def test_local_app_has_no_ai_button(self):
+    def assert_rule_based(self, at):
+        text = page_text(at)
+        for headline in rule_headlines(at.session_state["demo_store"]):
+            self.assertIn(headline, text)
+        self.assertNotIn(AI_LABEL, text)
+        self.assertIn("rule-based summary written by fixed rules", text)
+
+    def test_local_app_shows_the_rule_based_briefing_and_never_calls_out(self):
         at = AppTest.from_file("../app.py", default_timeout=120)
         at.session_state["workspace"] = "demo"
         with mock.patch(POST) as post:
             at.run()
-        self.assertFalse([b for b in at.button if b.label == "Draft AI Briefing"])
+        self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
+        self.assertFalse([b for b in at.button if b.label == "Draft with AI"])
+        self.assertEqual([s.value for s in at.subheader].count("Briefing"), 1)
+        self.assert_rule_based(at)
         post.assert_not_called()
 
-    def test_model_called_only_on_click_then_draft_needs_review(self):
+    def test_one_panel_rule_based_before_then_ai_draft_after_a_click(self):
         at = self.open()
         with mock.patch(POST, side_effect=echo_model) as post:
             at.run()
-            post.assert_not_called()                                     # not on page load
-            self.button(at, "Draft AI Briefing").click().run()
+            post.assert_not_called()                                     # never called on page load
+            subheaders = [s.value for s in at.subheader]
+            self.assertEqual(subheaders.count("Briefing"), 1)
+            self.assertNotIn("AI Briefing Draft", subheaders)            # no second briefing box
+            self.assertNotIn("Management Briefing", subheaders)
+            self.assert_rule_based(at)
+            self.assertIn(RULE_LABEL, page_text(at))
+            self.button(at, "Draft with AI").click().run()
         self.assertEqual(post.call_count, 1)
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
         text = page_text(at)
-        self.assertIn("AI draft—asset-manager review required", text)
+        self.assertIn(AI_LABEL, text)                                    # same panel, now the AI draft
+        self.assertEqual([s.value for s in at.subheader].count("Briefing"), 1)
+        for headline in rule_headlines():
+            self.assertNotIn(headline, text)                             # shown instead of, not beside
         self.assertIn("Possible cause (unverified)", text)              # relabelled although the model said fact
-        self.assertIn("Management Briefing", text)                       # rule-based briefing still there
+        self.assertIn("Review AI evidence and approve",                    # link to evidence and approval
+                      [link.proto.label for link in at.get("page_link")])
         self.assertFalse([b for b in at.get("download_button") if "AI draft" in b.label])   # locked until approved
+
+    def test_rule_based_approval_never_approves_the_ai_draft(self):
+        at = self.open()
+        with mock.patch(POST, side_effect=echo_model):
+            at.run()
+            store = at.session_state["demo_store"]
+            from hotel_dashboard import briefing
+            ids = list(store.properties["property_id"])
+            statements = briefing.build_briefing(store.facts, store.properties, ids, "All properties", "2026-07",
+                                                 store.active_warnings())
+            store.add_review("all", "2026-07", briefing.fingerprint(statements), "Rule Reviewer", "")
+            at.run()
+            self.assertIn("Approved · Rule Reviewer", page_text(at))     # the rule-based summary is approved
+            self.button(at, "Draft with AI").click().run()
+        text = page_text(at)
+        self.assertIn(AI_LABEL, text)                                    # the AI draft still needs its own review
+        self.assertNotIn("Approved · Rule Reviewer", text)
+        self.assertNotIn("Approved AI draft", text)
+
+    def test_failed_call_keeps_the_rule_based_summary(self):
+        for key, reply, message in ((None, None, "no GEMINI_API_KEY"),
+                                    ("test-key", response(429, {"error": {}}), "free Gemini quota is used up"),
+                                    ("test-key", response(503, {"error": {}}), "didn't respond successfully")):
+            at = self.open(key)
+            with mock.patch(POST, return_value=reply) as post:
+                at.run()
+                self.button(at, "Draft with AI").click().run()
+            self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
+            self.assertIn(message, page_text(at))
+            self.assertIn("the briefing below is unchanged", page_text(at).lower())
+            self.assert_rule_based(at)
+            self.assertNotIn("ai_draft", at.session_state)
+            self.assertEqual(post.call_count, 0 if key is None else 1)
+
+    def test_draft_that_fails_validation_is_not_shown(self):
+        at = self.open()
+        with mock.patch(POST, side_effect=invented_only):
+            at.run()
+            self.button(at, "Draft with AI").click().run()
+        self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
+        self.assertIn("The AI draft failed validation: all 3 claim(s) were removed", page_text(at))
+        self.assert_rule_based(at)
+        self.assertNotIn("512.34", page_text(at))
+        self.assertNotIn("ai_draft", at.session_state)
+
+    def test_import_makes_the_draft_stale_and_returns_to_the_rule_based_summary(self):
+        from hotel_dashboard.demo import SAMPLE_DIR
+        from hotel_dashboard.importer import read_monthly_workbook
+        at = self.open()
+        with mock.patch(POST, side_effect=echo_model) as post:
+            at.run()
+            self.button(at, "Draft with AI").click().run()
+            self.assertIn(AI_LABEL, page_text(at))
+            store = at.session_state["demo_store"]
+            store.add_import(read_monthly_workbook(SAMPLE_DIR / "monthly_2026-08.xlsx", None, store.properties))
+            at.run()
+        text = page_text(at)
+        self.assertIn("The AI draft (and any approval of it) was discarded", text)
+        self.assertNotIn(AI_LABEL, text)
+        self.assertIn("rule-based summary written by fixed rules", text)
+        self.assertEqual(post.call_count, 1)                             # nothing re-drafted automatically
+
+    def test_selection_change_discards_the_draft(self):
+        at = self.open()
+        with mock.patch(POST, side_effect=echo_model):
+            at.run()
+            self.button(at, "Draft with AI").click().run()
+            self.assertIn(AI_LABEL, page_text(at))
+            next(s for s in at.selectbox if s.label == "Month").set_value("2026-06").run()
+        self.assertIn("The AI draft (and any approval of it) was discarded", page_text(at))
+        self.assertNotIn(AI_LABEL, page_text(at))
 
     def test_findings_show_as_bullets_and_every_shown_number_is_in_its_evidence(self):
         def styled_model(url, **kwargs):          # adds list markers and an invented figure, as a model might
@@ -235,10 +349,7 @@ class ScreenTests(unittest.TestCase):
         at = self.open()
         with mock.patch(POST, side_effect=styled_model):
             at.run()
-            before = page_text(at)
-            self.assertIn("No AI draft yet", before)                     # before: rule-based cards only
-            self.assertIn("What Changed", before)
-            self.button(at, "Draft AI Briefing").click().run()
+            self.button(at, "Draft with AI").click().run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
         draft = at.session_state["ai_draft"]
         bullets = [m.value.replace("\\$", "$") for m in at.markdown
@@ -271,27 +382,6 @@ class ScreenTests(unittest.TestCase):
         self.assertTrue(any(l.startswith("    - Evidence E") for l in lines))   # evidence nested under each finding
         self.assertIn("## Reviewer notes", text)
 
-    def test_selection_change_discards_the_draft(self):
-        at = self.open()
-        with mock.patch(POST, side_effect=echo_model):
-            at.run()
-            self.button(at, "Draft AI Briefing").click().run()
-            self.assertIn("AI draft—asset-manager review required", page_text(at))
-            next(s for s in at.selectbox if s.label == "Month").set_value("2026-06").run()
-        self.assertIn("previous AI draft (and any approval of it) was discarded", page_text(at))
-        # Approval of the AI draft is on Review Log: see tests/test_review_log.py.
-
-    def test_missing_key_and_quota_leave_the_dashboard_usable(self):
-        for key, reply, message in ((None, None, "no GEMINI_API_KEY"),
-                                    ("test-key", response(429, {"error": {}}), "free Gemini quota is used up")):
-            at = self.open(key)
-            with mock.patch(POST, return_value=reply) as post:
-                at.run()
-                self.button(at, "Draft AI Briefing").click().run()
-            self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
-            self.assertIn(message, page_text(at))
-            self.assertIn("Management Briefing", page_text(at))
-            self.assertEqual(post.call_count, 0 if key is None else 1)
 
 
 class EvaluationHarnessTests(unittest.TestCase):
