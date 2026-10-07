@@ -47,14 +47,18 @@ the sidebar, which starts collapsed: open it with the **>>** button at the top l
 1. **Portfolio Overview** shows July 2026. A small orange notice at the top right says
    *Aug 2026 not imported* (hover over it for details). The reporting period and comparison basis
    are stated under the title.
-2. Go to **Data Imports & Checks**. Under **1. Monthly Financials — Actuals**, the month table shows
-   August as *Not imported*. Click **August 2026 close (clean file)**: a *Preview (not imported yet)*
-   says *All checks passed*. Click **Import**; August turns *Complete* (click its row for details).
-3. Click the same button again. It lists exactly which property-months would be replaced, and
-   **Import** stays locked until you tick *Replace the previously imported figures*.
-4. Click **August 2026 with deliberate errors**. It shows 3 errors (a missing field, a duplicate
-   hotel-month, a "TOTAL" subtotal row) and 3 warnings (figures that do not reconcile), and it
-   cannot be imported.
+2. Go to **Data Imports & Checks**. Under the *Class Demo — Fictional Data Only* caption, **Sample data**
+   has one tile per import (Monthly Actuals, Budget, Forward Pace, Debt Service / DSCR, STR / Market
+   Context, Revenue Mix). Click **Load sample** on **Monthly Actuals**: a *Review and import* dialog
+   shows a *Preview (not imported yet)* that says *All checks passed*. Click **Import**; the dialog
+   closes and August turns *Complete* in the month table (click its row for details). **Cancel**, or
+   the dialog's close button, leaves everything unchanged.
+3. Open the tile again and choose **August 2026 close** a second time, or the Budget tile's **2026
+   portfolio budget (already loaded)**: the dialog lists exactly which property-months would be
+   replaced, and **Import** stays locked until you tick *Replace the previously imported figures*.
+4. In the Monthly Actuals dialog, choose **August 2026 with deliberate errors**. It shows 3 errors (a
+   missing field, a duplicate hotel-month, a "TOTAL" subtotal row) and 3 warnings (figures that do not
+   reconcile), and **Import** is disabled.
 5. Back on **Portfolio Overview**, August is now shown. Under the trends:
    - the **EBITDA Waterfall** steps down from Total Revenue through each expense group (source P&L
      order) to GOP and EBITDA; the line under it confirms it reaches the reported EBITDA
@@ -72,14 +76,18 @@ the sidebar, which starts collapsed: open it with the **>>** button at the top l
    (marked *unverified*) and the **Approve for sharing** form are on **Review Log**; the download
    appears only after approval.
 9. The three **Forward-Looking and Market Context** boxes say *Pace / Debt / STR data needed*. On
-   **Data Imports & Checks → 3. Supporting Data**, click **Load the fictional demo file** on each card,
-   then **Import**; the card turns *Loaded* with its latest period and coverage. The boxes (and Revenue Mix) fill in without changing size; each box
+   **Data Imports & Checks**, click **Load sample** on the Forward Pace, Debt Service / DSCR, STR /
+   Market Context and Revenue Mix tiles, then **Import** in each dialog; the tile and its card under
+   **3. Supporting Data** turn *Loaded* with the latest period and coverage. The boxes (and Revenue Mix) fill in without changing size; each box
    opens a detail view (**Forward Pace**, **Debt Coverage**, **Market Context**).
 
-10. Budgets: under **2. Budgets**, set **Reporting year** to 2027 and import the two fictional 2027
-   budget files (one per property group): coverage fills in with nothing replaced. The 2026
-   portfolio budget sample overlaps what is loaded, so it shows the 72 property-months it would
-   replace and needs confirmation. A workbook with both sheets uses the combined-workbook route.
+10. Budgets: the Budget tile says the 2026 budget is preloaded. Its **Load sample** dialog offers the
+   two fictional 2027 budget files (one per property group): import both and **2. Budgets** switches
+   to 2027 with coverage filled in and nothing replaced. The 2026 portfolio budget sample overlaps
+   what is loaded, so it shows the 72 property-months it would replace and needs confirmation.
+11. Your own files: every card has an **Upload / Import** button that opens the same dialog with a file
+   picker (Monthly Actuals, Budget, the combined Actual + Budget workbook under *Have one workbook
+   with both sheets?*, and each supporting source). Choosing a file only previews it.
 
 To check a number yourself, open `sample_data/monthly_2026-08.xlsx` in Excel and compute
 `SUM(Rooms Revenue) / SUM(Rooms Sold)`. It matches the ADR card for *All properties* in August.
@@ -157,7 +165,7 @@ on the app's **Definitions** page, including the questions still to be confirmed
 
 ```
 app.py                     the screens (no calculations here)
-demo_app.py                hosted-demo entry point: fictional data only, uploads switched off
+demo_app.py                hosted-demo entry point: fictional data only, dummy uploads behind a confirmation
 hotel_dashboard/
   definitions.py           metric definitions, template columns, tolerances, thresholds
   importer.py              reads the Excel template and runs the data checks
@@ -183,8 +191,9 @@ The demo runs `demo_app.py` from the private GitHub repository on Streamlit Comm
 invited viewers sign in to open it. It only ever uses the fictional demo workspace (never
 `local_data/`).
 
-**Dummy uploads.** A warning and a "fictional or dummy data only" confirmation come before any
-upload control; only rows for the six fictional hotels are accepted (real company files are
+**Dummy uploads.** The page is captioned *Class Demo — Fictional Data Only*. Inside each upload
+dialog, a short note and a "fictional or dummy data only" confirmation come before the file picker
+(sample files need no confirmation); only rows for the six fictional hotels are accepted (real company files are
 rejected as unknown properties); .xlsm workbooks are refused; uploads are processed in memory on
 Streamlit's servers for that visitor's session only (nothing is saved; visitors can't see each
 other's data). The Data Imports page offers the fictional sample files as a zip to edit and re-upload.
@@ -216,7 +225,7 @@ reconciliation error) through the AI and the rule-based briefing and scores them
 - **Adapters for the real exports:** pace, STR, debt and channel files currently need re-keying into
   the simple templates (`sample_data/TEMPLATE_*.xlsx`). Once sample exports are available, a small
   adapter per export can fill the template automatically.
-- **Guest reviews** (TrustYou) are not connected; the Market Context view says so.
+- **Guest reviews** (TrustYou) are not connected and not part of this version.
 - **Brand typefaces:** the West77 Partners style guide (2022, Rev 2) sets the colours, now applied in
   `.streamlit/config.toml` and `hotel_dashboard/charts.py`, but doesn't name a typeface; the app keeps
   Streamlit's default sans-serif until one is confirmed.

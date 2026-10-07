@@ -19,8 +19,9 @@ from tests.test_dashboard_filters import page_text as _page_text, run_review
 
 
 def page_text(at) -> str:
-    """Page text including success messages (the import confirmation)."""
-    return _page_text(at) + "\n" + "\n".join(str(e.value) for e in at.success)
+    """Page text including success and error messages (the import confirmation, failed checks)."""
+    return _page_text(at) + "\n" + "\n".join(str(e.value) for e in list(at.success) + list(at.error))
+
 
 TODAY = date(2026, 10, 7)
 AUGUST = "2026-08"
@@ -134,8 +135,31 @@ def imports_screen():
     app.imports_page()
 
 
-def open_page(store, **state):
-    at = AppTest.from_function(imports_screen, default_timeout=120)
+def imports_with_upload():
+    """The page with Streamlit's file picker replaced by a stand-in returning st.session_state["test_upload"]."""
+    from unittest import mock
+
+    import streamlit as st
+
+    import app
+
+    class Chosen:
+        def __init__(self, name, raw):
+            self.name, self.raw = name, raw
+
+        def getvalue(self):
+            return self.raw
+
+    def picker(*args, **kwargs):
+        upload = st.session_state.get("test_upload")
+        return Chosen(*upload) if upload else None
+
+    with mock.patch.object(app.st, "file_uploader", picker):
+        app.imports_page()
+
+
+def open_page(store, screen=imports_screen, **state):
+    at = AppTest.from_function(screen, default_timeout=120)
     at.session_state["workspace"] = "demo"
     at.session_state["demo_store"] = store
     for key, value in state.items():
@@ -145,22 +169,152 @@ def open_page(store, **state):
 
 def click(at, key):
     next(b for b in at.button if b.key == key).click().run()
+    assert not at.exception, [e.value for e in at.exception]
 
 
-class PageTests(unittest.TestCase):
-    def test_actuals_route_imports_and_updates_status_dashboard_and_review_log(self):
+def button(at, key):
+    return next((b for b in at.button if b.key == key), None)
+
+
+def dialog_open(at) -> bool:
+    return button(at, "cancel_import") is not None
+
+
+def tables(at):
+    return [getattr(f.value, "data", f.value) for f in at.dataframe]          # a Styler or a DataFrame
+
+
+def actuals_row(at, month_name):
+    status = next(t for t in tables(at) if "Status" in t.columns and "Month" in t.columns)
+    return status[status["Month"] == month_name].iloc[0]
+
+
+class SampleTileTests(unittest.TestCase):
+    def test_page_top_is_a_caption_and_six_sample_tiles(self):
+        at = open_page(build_demo_store())
+        text = page_text(at)
+        self.assertIn("Class Demo — Fictional Data Only.", text)
+        self.assertNotIn("Never upload company files here", text)
+        self.assertEqual([b.key for b in at.button if b.key.startswith("sample_")],
+                         [f"sample_{k}" for k in ("actuals", "budget", "pace", "debt", "str", "channel_mix")])
+        self.assertIn("2026 budget: 6 of 6 hotels, preloaded", text)                 # honest preloaded status
+        self.assertFalse(dialog_open(at))
+
+    def test_each_tile_opens_a_preview_then_imports_and_updates_status(self):
         store = build_demo_store()
         at = open_page(store)
-        self.assertIn("Choosing a file only **previews** it", page_text(at))
-        click(at, "sample_actuals_monthly_2026-08.xlsx")
-        self.assertIn("Preview (not imported yet)", page_text(at))
-        self.assertEqual(len(store.imports), 2)                                  # still not imported
+        expected = {"actuals": "monthly_2026-08.xlsx", "budget": "budget_2027_legacy_assets.xlsx",
+                    "pace": "DEMO_pace_2026-09-01.xlsx", "debt": "DEMO_debt_service.xlsx",
+                    "str": "DEMO_str_2026.xlsx", "channel_mix": "DEMO_channel_mix_2026.xlsx"}
+        for kind, file_name in expected.items():
+            imports = len(store.imports) + len(store.source_imports)
+            click(at, f"sample_{kind}")
+            text = page_text(at)
+            self.assertIn(f"Preview (not imported yet): `{file_name}`", text)
+            self.assertIn("All checks passed. Not imported yet", text)
+            self.assertEqual(len(store.imports) + len(store.source_imports), imports)   # opening never imports
+            click(at, f"import_{kind}")
+            self.assertFalse(dialog_open(at), kind)                                    # closed after import
+            self.assertEqual(len(store.imports) + len(store.source_imports), imports + 1)
+            self.assertIn(f"Imported {file_name}", page_text(at))
+        text = page_text(at)
+        self.assertIn("August imported", text)
+        self.assertIn("2027 budget: 2 of 6 hotels", text)                             # one of two 2027 files
+        self.assertEqual(text.count(":green-badge[:material/check_circle: Loaded]"), 8)  # 4 tiles + 4 cards
+        self.assertEqual(at.session_state["import_year"], 2027)                        # shows the budget year
+        grid = next(t for t in tables(at) if "Missing months" in t.columns).set_index("Property")
+        self.assertEqual(grid.loc["Harbor House Hotel", "Months"], "12 of 12")
+        self.assertIn("Coverage:** 5 of 6 properties (missing: Canyon Gate Suites)", text)   # STR card
+        self.assertIn("as of 1 Sep 2026", text)                                         # pace card
+        history = "".join(t.to_string() for t in tables(at) if "source" in t.columns)
+        for file_name in list(expected.values())[2:]:
+            self.assertIn(file_name, history)                                           # supporting history
+
+    def test_cancel_closes_without_importing(self):
+        store = build_demo_store()
+        at = open_page(store)
+        click(at, "sample_actuals")
+        self.assertTrue(dialog_open(at))
+        click(at, "cancel_import")
+        self.assertFalse(dialog_open(at))
+        self.assertEqual(len(store.imports), 2)
+        self.assertEqual(actuals_row(at, "August 2026")["Status"], "Not imported")
+
+    def test_file_with_errors_cannot_be_imported(self):
+        store = build_demo_store()
+        at = open_page(store)
+        click(at, "sample_actuals")
+        at.radio(key="dialog_sample_actuals").set_value("August 2026 with deliberate errors").run()
+        self.assertIn("Import is disabled until they are fixed", page_text(at))
+        self.assertTrue(button(at, "import_actuals").disabled)
+        self.assertEqual(len(store.imports), 2)
+
+    def test_overlapping_budget_needs_confirmation(self):
+        store = build_demo_store()
+        at = open_page(store)
+        click(at, "sample_budget")
+        at.radio(key="dialog_sample_budget").set_value("2026 portfolio budget (already loaded)").run()
+        self.assertIn("72 property-month(s) in this file are already loaded", page_text(at))
+        self.assertTrue(button(at, "import_budget").disabled)                         # needs explicit confirmation
+        at.checkbox(key="replace_budget").check().run()
+        self.assertFalse(button(at, "import_budget").disabled)
+        click(at, "import_budget")
+        self.assertEqual(int(store.imports.iloc[-1]["replaced_rows"]), 72)
+        self.assertFalse(dialog_open(at))
+
+    def test_only_one_dialog_at_a_time(self):
+        at = open_page(build_demo_store())
+        click(at, "sample_actuals")
+        click(at, "sample_debt")                                                       # replaces, never stacks
+        self.assertEqual([b.key for b in at.button if b.key.startswith("import_")], ["import_debt"])
+
+
+class UploadDialogTests(unittest.TestCase):
+    def test_manual_upload_of_actuals_previews_then_imports(self):
+        store = build_demo_store()
+        at = open_page(store, imports_with_upload)
+        click(at, "open_actuals")
+        self.assertIn("Choosing a file only **previews** it", page_text(at))           # dialog open, no file yet
+        self.assertIsNone(button(at, "import_actuals"))
+        at.session_state["test_upload"] = ("august_partial.xlsx", august_without("H03"))
+        at.run()
+        self.assertIn("Preview (not imported yet): `august_partial.xlsx`", page_text(at))
+        self.assertEqual(len(store.imports), 2)                                        # selecting never imports
         click(at, "import_actuals")
-        self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
+        self.assertFalse(dialog_open(at))
+        august = actuals_row(at, "August 2026")
+        self.assertEqual((august["Status"], august["Properties reported"]), ("Partial", "5 of 6"))
+        self.assertEqual(august["Latest file"], "august_partial.xlsx")
+
+    def test_manual_upload_through_the_wrong_route_is_refused(self):
+        store = build_demo_store()
+        at = open_page(store, imports_with_upload, test_upload=(
+            "budget_2026.xlsx", (SAMPLE_DIR / "budget_2026.xlsx").read_bytes()))
+        click(at, "open_actuals")
+        self.assertIn("Wrong upload", "".join(t.to_string() for t in tables(at)))
+        self.assertTrue(button(at, "import_actuals").disabled)
+
+    def test_combined_route_says_both_sheets_will_be_imported(self):
+        store = build_demo_store()
+        name = "combined_2026-08_actual_and_budget.xlsx"
+        at = open_page(store, imports_with_upload, test_upload=(name, (SAMPLE_DIR / name).read_bytes()))
+        click(at, "open_combined")
+        text = page_text(at)
+        self.assertIn("Both sheets found in this file will be imported", text)
+        self.assertIn("6 property-month(s) in this file are already loaded", text)   # the August budget rows
+        at.checkbox(key="replace_combined").check().run()
+        click(at, "import_combined")
+        self.assertEqual(store.imports.iloc[-1]["scenarios"], "Actual, Budget")
+
+
+class ProvenanceTests(unittest.TestCase):
+    def test_actuals_sample_shows_on_dashboard_and_review_log(self):
+        store = build_demo_store()
+        at = open_page(store)
+        click(at, "sample_actuals")
+        click(at, "import_actuals")
         self.assertIn("passed validation and now shows in the status", page_text(at))
-        tables = [getattr(f.value, "data", f.value) for f in at.dataframe]          # a Styler or a DataFrame
-        status = next(t for t in tables if "Status" in t.columns and "Month" in t.columns)
-        august = status[status["Month"] == "August 2026"].iloc[0]
+        august = actuals_row(at, "August 2026")
         self.assertEqual((august["Status"], august["Latest file"]), ("Complete", "monthly_2026-08.xlsx"))
         review = run_review(store, month_pick=AUGUST)                            # provenance on Review Log
         self.assertIn("monthly_2026-08.xlsx", review.dataframe[3].value.to_string()
@@ -170,49 +324,11 @@ class PageTests(unittest.TestCase):
         a = metrics.combine(store.facts, list(store.properties["property_id"]), AUGUST, "Actual")
         self.assertTrue(revpar.endswith(money(a["revpar"])))
 
-    def test_budget_routes_separate_files_then_overlap_confirmation(self):
-        store = build_demo_store()
-        at = open_page(store, import_year=2027)
-        for name in ("budget_2027_legacy_assets.xlsx", "budget_2027_other_properties.xlsx"):
-            click(at, f"sample_budget_{name}")
-            self.assertNotIn("already loaded. Importing would replace", page_text(at))
-            click(at, "import_budget")
-        grid = next(f.value for f in at.dataframe if "Missing months" in f.value.columns)
-        self.assertTrue((grid["Months"] == "12 of 12").all())
-        click(at, "sample_budget_budget_2026.xlsx")                              # overlaps the loaded 2026 budget
-        self.assertIn("72 property-month(s) in this file are already loaded", page_text(at))
-        button = next(b for b in at.button if b.key == "import_budget")
-        self.assertTrue(button.disabled)                                          # needs explicit confirmation
-        next(c for c in at.checkbox if c.key == "replace_budget").check().run()
-        self.assertFalse(next(b for b in at.button if b.key == "import_budget").disabled)
-        click(at, "import_budget")
-        self.assertEqual(int(store.imports.iloc[-1]["replaced_rows"]), 72)
-
-    def test_combined_route_says_both_sheets_will_be_imported(self):
-        store = build_demo_store()
-        at = open_page(store)
-        click(at, "sample_combined_combined_2026-08_actual_and_budget.xlsx")
-        text = page_text(at)
-        self.assertIn("Both sheets found in this file will be imported", text)
-        self.assertIn("6 property-month(s) in this file are already loaded", text)   # the August budget rows
-        next(c for c in at.checkbox if c.key == "replace_combined").check().run()
-        click(at, "import_combined")
-        self.assertEqual(store.imports.iloc[-1]["scenarios"], "Actual, Budget")
-
-    def test_each_supporting_card_imports_its_demo_file(self):
-        store = build_demo_store()
-        at = open_page(store)
-        self.assertIn("Not yet supported", page_text(at))                         # Guest Reviews: honest state
-        self.assertFalse([u for u in at.get("file_uploader") if "Review" in u.label])
-        for name in ("pace", "debt", "str", "channel_mix"):
-            click(at, f"demo_{name}")
-            click(at, f"import_{name}")
-            self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
-            state = coverage.source_status(store, name)
-            self.assertTrue(state["loaded"], name)
-        self.assertEqual(page_text(at).count("Loaded"), 4)
-        self.assertIn("as of 1 Sep 2026", page_text(at))                          # pace: latest as-of date
-        self.assertIn("Coverage:** 5 of 6 properties (missing: Canyon Gate Suites)", page_text(at))   # STR
+    def test_supporting_section_has_no_guest_reviews(self):
+        text = page_text(open_page(build_demo_store()))
+        self.assertNotIn("Guest Reviews", text)
+        self.assertNotIn("Guest & Market Context", text)
+        self.assertNotIn("Not yet supported", text)
 
 
 if __name__ == "__main__":

@@ -107,6 +107,8 @@ class NewPanelTests(unittest.TestCase):
             self.assertEqual(len(full.exception), 0, [e.value for e in full.exception])
             self.assertNotIn(needed, page_text(full))
             self.assertGreaterEqual(len(full.dataframe), 1)
+        market = page_text(run_screen(market_screen, self.full))
+        self.assertNotIn("Guest Reviews", market)                           # unfinished section removed
         debt = run_screen(debt_screen, self.full)
         self.assertEqual(len(debt.dataframe[0].value), 6)                   # one row per property
 
@@ -114,7 +116,7 @@ class NewPanelTests(unittest.TestCase):
         store = build_demo_store()
         at = run_screen(imports_screen, store)
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
-        next(b for b in at.button if b.key == "demo_pace").click().run()
+        next(b for b in at.button if b.key == "sample_pace").click().run()           # opens the review dialog
         next(b for b in at.button if b.key == "import_pace").click().run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
         self.assertEqual(len(store.sources["pace"]), 50)

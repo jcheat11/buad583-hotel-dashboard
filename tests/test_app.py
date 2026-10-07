@@ -44,20 +44,31 @@ class AppTests(unittest.TestCase):
     def test_local_app_offers_file_upload(self):
         at = AppTest.from_function(imports_screen, args=(False,), default_timeout=60).run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
-        self.assertEqual(len(at.get("file_uploader")), 7)    # actuals, budget, combined + 4 supporting sources
+        opens = [b.key for b in at.button if b.key.startswith("open_")]
+        self.assertEqual(len(opens), 7)                       # actuals, combined, budget + 4 supporting sources
+        self.assertEqual(len(at.get("file_uploader")), 0)     # the picker is inside the dialog
+        next(b for b in at.button if b.key == "open_actuals").click().run()
+        uploaders = at.get("file_uploader")
+        self.assertEqual(len(uploaders), 1)
+        self.assertIn(".xlsm", list(uploaders[0].proto.type))   # the local app reads the real package format
 
     def test_hosted_copy_uploads_only_after_confirming_dummy_data(self):
         at = AppTest.from_function(imports_screen, args=(True,), default_timeout=60).run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
-        self.assertEqual(len(at.get("file_uploader")), 0)    # no upload until the visitor confirms dummy data only
-        self.assertTrue(any("August" in b.label for b in at.button))   # sample imports still work
+        self.assertEqual(len(at.get("file_uploader")), 0)
+        self.assertEqual(len([b for b in at.button if b.key.startswith("sample_")]), 6)   # samples need no confirm
         self.assertEqual(len(at.get("download_button")) >= 1, True)    # the fictional files to edit and upload
+        routes = [b.key[len("open_"):] for b in at.button if b.key.startswith("open_")]
+        self.assertEqual(len(routes), 7)
+        next(b for b in at.button if b.key == "open_actuals").click().run()
+        self.assertEqual(len(at.get("file_uploader")), 0)    # no picker until the visitor confirms dummy data only
         next(c for c in at.checkbox if c.key == "hosted_dummy_ok").check().run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
-        uploaders = at.get("file_uploader")
-        self.assertEqual(len(uploaders), 7)                   # actuals, budget, combined + 4 supporting sources
-        for uploader in uploaders:                            # the real monthly package format (.xlsm) is refused
-            self.assertNotIn(".xlsm", list(uploader.proto.type))
+        for route in routes:                                  # confirmed once, every route then offers a picker
+            next(b for b in at.button if b.key == f"open_{route}").click().run()
+            uploaders = at.get("file_uploader")
+            self.assertEqual(len(uploaders), 1, route)
+            self.assertNotIn(".xlsm", list(uploaders[0].proto.type))   # the real monthly package format is refused
 
     def test_hosted_copy_rejects_rows_for_real_properties(self):
         from hotel_dashboard.demo import build_demo_store

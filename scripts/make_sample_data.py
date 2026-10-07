@@ -248,25 +248,37 @@ def make_source_demos(budget, actual):
                          "occupancy": round(otb, 4), "comp_occupancy": round(otb * rng.uniform(0.9, 1.1), 4),
                          "comp_set": "Demo comp set"})
 
-    debt = []
-    minimums = {"H01": 1.25, "H02": 1.30, "H03": 1.20, "H04": 1.25, "H05": 1.35, "H06": None}
-    for pid, _, keys, *_ in HOTELS:
-        first = date(YEAR, 1, 1) if pid == "H06" else date(YEAR - 1, 8, 1)      # H06's loan started in January
-        month = first
-        while month <= date(YEAR, CLOSE_MONTH, 1):
-            service = round(keys * 780, 2)
-            cover = {"H05": 1.18, "H02": 1.34}.get(pid, 1.55)                     # H05 falls short of its minimum
-            debt.append({"property_id": pid, "month": month, "debt_service": service,
-                         "cash_flow": round(service * cover * rng.uniform(0.9, 1.1), 2),
-                         "dscr_minimum": minimums[pid], "lender": "Demo Lender"})
-            month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
-
     write_source_file(OUT / "DEMO_channel_mix_2026.xlsx", "channel_mix", channel)
     write_source_file(OUT / "DEMO_pace_2026-09-01.xlsx", "pace", pace)
     write_source_file(OUT / "DEMO_str_2026.xlsx", "str", strs)
-    write_source_file(OUT / "DEMO_debt_service.xlsx", "debt", debt)
+    make_debt_demo(budget, actual)
     for source in sources.SOURCES:
         (OUT / f"TEMPLATE_{source}.xlsx").write_bytes(sources.template_bytes(source))
+
+
+def make_debt_demo(budget, actual):
+    """
+    The debt file, consistent with the monthly figures: the cash flow available for debt service is each
+    hotel's NOI from the actuals (2026 months); the 2025 months, which have no monthly file in the demo,
+    use 97% of the same calendar month's 2026 budget NOI. Debt service is sized from the 2026 budget NOI.
+    """
+    minimums = {"H01": 1.25, "H02": 1.30, "H03": 1.20, "H04": 1.25, "H05": 1.35, "H06": None}
+    cover = {"H05": 1.18, "H02": 1.34, "H06": 1.05}          # H05 falls short of its minimum; H06 is ramping up
+    budget_noi = {(r["property_id"], r["month"].month): r["noi"] for r in budget}
+    actual_noi = {(r["property_id"], r["month"].month): r["noi"] for r in actual}
+    debt = []
+    for pid, *_ in HOTELS:
+        annual = sum(budget_noi[(pid, m)] for m in range(1, 13))
+        service = round(annual / 12 / cover.get(pid, 1.55), -2)
+        # H06 (opened 2025) has negative NOI until March, so its loan file starts in April.
+        month = date(YEAR, 4, 1) if pid == "H06" else date(YEAR - 1, 8, 1)
+        while month <= date(YEAR, CLOSE_MONTH, 1):
+            cash = (actual_noi[(pid, month.month)] if month.year == YEAR
+                    else budget_noi[(pid, month.month)] * 0.97)
+            debt.append({"property_id": pid, "month": month, "debt_service": service, "cash_flow": round(cash, 2),
+                         "dscr_minimum": minimums[pid], "lender": "Demo Lender"})
+            month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+    write_source_file(OUT / "DEMO_debt_service.xlsx", "debt", debt)
 
 
 def make_2027_budgets():

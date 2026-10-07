@@ -4,8 +4,28 @@
     {
       "name": "hotel-dashboard",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port", "8501"],
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app.py",
+        "--server.port",
+        "8501"
+      ],
       "port": 8501
+    },
+    {
+      "name": "hotel-demo",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "demo_app.py",
+        "--server.port",
+        "8502"
+      ],
+      "port": 8502
     }
   ]
 }

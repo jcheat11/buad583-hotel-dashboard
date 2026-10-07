@@ -51,6 +51,21 @@ SOURCE_DEMOS = {
 }
 
 
+# The sample tiles on Data Imports & Checks: one tile per import, each with its fictional file(s) as
+# (file, label, upload route). The first file is the default; the rest are offered in the review dialog.
+DEMO_SAMPLES = {
+    "actuals": [("monthly_2026-08.xlsx", "August 2026 close (clean file)", "actuals"),
+                ("monthly_2026-08_with_errors.xlsx", "August 2026 with deliberate errors", "actuals"),
+                ("combined_2026-08_actual_and_budget.xlsx", "August 2026 actuals + budget in one workbook",
+                 "combined")],
+    "budget": [(file_name, label, "budget") for file_name, label in BUDGET_SAMPLES.items()],
+    "pace": [(SOURCE_DEMOS["pace"], "Pace reports as of 1 Aug and 1 Sep 2026", "pace")],
+    "debt": [(SOURCE_DEMOS["debt"], "Debt service and cash flow, Aug 2025 – Aug 2026", "debt")],
+    "str": [(SOURCE_DEMOS["str"], "STR results Jan – Aug 2026, forward Sep – Nov", "str")],
+    "channel_mix": [(SOURCE_DEMOS["channel_mix"], "Room revenue by channel, Jan – Aug 2026", "channel_mix")],
+}
+
+
 def build_demo_store(today: date | None = None) -> DataStore:
     properties, _ = load_properties(SAMPLE_DIR / "properties.csv")
     store = DataStore(properties, folder=None)
