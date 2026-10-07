@@ -44,7 +44,7 @@ class AppTests(unittest.TestCase):
     def test_local_app_offers_file_upload(self):
         at = AppTest.from_function(imports_screen, args=(False,), default_timeout=60).run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
-        self.assertEqual(len(at.get("file_uploader")), 5)    # monthly file + 4 separate sources
+        self.assertEqual(len(at.get("file_uploader")), 7)    # actuals, budget, combined + 4 supporting sources
 
     def test_hosted_copy_uploads_only_after_confirming_dummy_data(self):
         at = AppTest.from_function(imports_screen, args=(True,), default_timeout=60).run()
@@ -55,8 +55,9 @@ class AppTests(unittest.TestCase):
         next(c for c in at.checkbox if c.key == "hosted_dummy_ok").check().run()
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
         uploaders = at.get("file_uploader")
-        self.assertEqual(len(uploaders), 5)                   # monthly file + 4 separate sources
-        self.assertNotIn(".xlsm", list(uploaders[0].proto.type))   # the real monthly package format is refused
+        self.assertEqual(len(uploaders), 7)                   # actuals, budget, combined + 4 supporting sources
+        for uploader in uploaders:                            # the real monthly package format (.xlsm) is refused
+            self.assertNotIn(".xlsm", list(uploader.proto.type))
 
     def test_hosted_copy_rejects_rows_for_real_properties(self):
         from hotel_dashboard.demo import build_demo_store

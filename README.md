@@ -47,10 +47,11 @@ the sidebar, which starts collapsed: open it with the **>>** button at the top l
 1. **Portfolio Overview** shows July 2026. A small orange notice at the top right says
    *Aug 2026 not imported* (hover over it for details). The reporting period and comparison basis
    are stated under the title.
-2. Go to **Data Imports & Checks** and click **August 2026 close (clean file)**. It says
-   *All checks passed*. Click **Import**.
-3. Click the same button again. It is flagged as a **duplicate month**, and **Import** stays
-   locked until you tick *Replace the previously imported figures*.
+2. Go to **Data Imports & Checks**. Under **1. Monthly Financials — Actuals**, the month table shows
+   August as *Not imported*. Click **August 2026 close (clean file)**: a *Preview (not imported yet)*
+   says *All checks passed*. Click **Import**; August turns *Complete* (click its row for details).
+3. Click the same button again. It lists exactly which property-months would be replaced, and
+   **Import** stays locked until you tick *Replace the previously imported figures*.
 4. Click **August 2026 with deliberate errors**. It shows 3 errors (a missing field, a duplicate
    hotel-month, a "TOTAL" subtotal row) and 3 warnings (figures that do not reconcile), and it
    cannot be imported.
@@ -67,13 +68,18 @@ the sidebar, which starts collapsed: open it with the **>>** button at the top l
 7. Choose **Property group → Asset Cohort → Legacy Assets**. Mesa Suites is also in
    *LivAway Suites* (brand) and *Stabilized Properties* (stage), but each view counts it once.
 8. At the bottom, the **Management Briefing** has three short cards (*What Changed*, *Why It Matters*,
-   *What Needs a Decision*), each a headline and one sentence; evidence, sources and possible causes
-   (marked *not verified*) are in each card's expander. Enter a name, tick the box
-   and click **Approve for sharing**; the download appears only then.
+   *What Needs a Decision*), each a headline and one sentence. Evidence, sources, possible causes
+   (marked *unverified*) and the **Approve for sharing** form are on **Review Log**; the download
+   appears only after approval.
 9. The three **Forward-Looking and Market Context** boxes say *Pace / Debt / STR data needed*. On
-   **Data Imports & Checks → 2. Other Data Sources**, open each tab and click **Load the fictional
-   demo file**, then **Import**. The boxes (and Revenue Mix) fill in without changing size; each box
+   **Data Imports & Checks → 3. Supporting Data**, click **Load the fictional demo file** on each card,
+   then **Import**; the card turns *Loaded* with its latest period and coverage. The boxes (and Revenue Mix) fill in without changing size; each box
    opens a detail view (**Forward Pace**, **Debt Coverage**, **Market Context**).
+
+10. Budgets: under **2. Budgets**, set **Reporting year** to 2027 and import the two fictional 2027
+   budget files (one per property group): coverage fills in with nothing replaced. The 2026
+   portfolio budget sample overlaps what is loaded, so it shows the 72 property-months it would
+   replace and needs confirmation. A workbook with both sheets uses the combined-workbook route.
 
 To check a number yourself, open `sample_data/monthly_2026-08.xlsx` in Excel and compute
 `SUM(Rooms Revenue) / SUM(Rooms Sold)`. It matches the ADR card for *All properties* in August.

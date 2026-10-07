@@ -32,10 +32,11 @@ import pandas as pd
 import streamlit as st
 from PIL import Image          # Pillow comes with Streamlit; used only to trim the logo's transparent margins
 
-from hotel_dashboard import ai_briefing, ai_eval, briefing, charts, metrics, sources
+from hotel_dashboard import ai_briefing, ai_eval, briefing, charts, coverage, metrics, sources
 from hotel_dashboard import trace as trace_mod
 from hotel_dashboard import definitions as d
-from hotel_dashboard.demo import SAMPLE_DIR, SAMPLE_IMPORTS, SOURCE_DEMOS, TEMPLATE_FILE, build_demo_store
+from hotel_dashboard.demo import (BUDGET_SAMPLES, COMBINED_SAMPLES, SAMPLE_DIR, SAMPLE_IMPORTS, SOURCE_DEMOS, TEMPLATE_FILE,
+                                   build_demo_store, monthly_template_bytes)
 from hotel_dashboard.formatting import count, money, money_short, month_label, pct, points, signed_money, signed_pct
 from hotel_dashboard.importer import read_monthly_workbook
 from hotel_dashboard.store import DataStore
@@ -1239,91 +1240,325 @@ def ai_evaluation_page() -> None:
 # Page 2: Data Imports & Checks
 # ------------------------------------------------------------------------------------
 
+ROUTES = {   # monthly upload routes: which sheets each one reads (the importer ignores the others)
+    "actuals": {"sheets": ["Actual"], "label": "Upload Monthly Actuals", "what": "Actuals"},
+    "budget": {"sheets": ["Budget"], "label": "Upload Budget", "what": "Budget"},
+    "combined": {"sheets": None, "label": "Upload combined Actual + Budget workbook", "what": "Actuals and budget"},
+}
+ACTUALS_STATUS = {"Complete": "good", "Partial": "watch", "Not imported": "review", "Not closed yet": "missing",
+                  "Imported early": "watch"}
+UPLOADED_MEANS = ("Choosing a file only **previews** it. It counts as uploaded once it passes the checks and you "
+                  "click **Import**; it then shows in the status below.")
+
+
 def imports_page() -> None:
-    st.title("Data Imports & Checks")
     store = current_store()
+    head, year_area = st.columns([3, 1], vertical_alignment="bottom")
+    head.title("Data Imports & Checks")
     if store is None:
         local_setup_help()
         return
     for problem in st.session_state.get("property_problems", []) if workspace() == "local" else []:
         st.warning(f"properties.csv: {problem}")
     if "flash" in st.session_state:
-        st.success(st.session_state.pop("flash"))
-
+        st.success(st.session_state.pop("flash"), icon=":material/check_circle:")
+    years = coverage.years_available(store)
+    if st.session_state.get("import_year") not in years:
+        st.session_state.import_year = coverage.default_year(store)
+    year = year_area.selectbox("Reporting year", years, key="import_year")
+    st.caption("See what is loaded and what is missing, and upload each type of file in its own place. "
+               + ("Fictional demo workspace: imports stay in this browser session and are not saved."
+                  if workspace() == "demo" else "Imported data is kept on this computer in local_data/."))
     if MODE["hosted_demo"]:
         hosted_upload_notice()
 
-    st.subheader("1. Import a Monthly File")
+    actuals_section(store, year)
+    budgets_section(store, year)
+    supporting_section(store)
+    detail_expanders(store)
+
+
+# --- 1. Monthly Financials: Actuals ------------------------------------------------------------
+
+def monthly_upload_card(store: DataStore, route: str, samples: dict, template_sheets) -> tuple | None:
+    """Upload control, template and (demo) samples for one monthly route. Returns a file to preview."""
+    spec = ROUTES[route]
     pending = None
-    if workspace() == "demo":
-        st.caption("Fictional demo workspace: imports stay in this browser session and are not saved.")
-        buttons = st.columns(len(SAMPLE_IMPORTS) + 1)
-        for column, (file_name, caption) in zip(buttons, SAMPLE_IMPORTS.items()):
-            if column.button(caption, icon=":material/upload_file:", key=f"sample_{file_name}"):
-                st.session_state.pending_sample = file_name
-        if "pending_sample" in st.session_state:
-            name = st.session_state.pending_sample
-            pending = (name, (SAMPLE_DIR / name).read_bytes())
-    if uploads_allowed():
-        uploaded = st.file_uploader(
-            "Monthly Excel file (.xlsx) in the template format",
-            type=["xlsx"] if MODE["hosted_demo"] else ["xlsx", "xlsm"],   # hosted: the real package (.xlsm) is refused
-            key=f"uploader_{st.session_state.get('uploader_round', 0)}", help=upload_help())
-        if uploaded is not None:
-            pending = (uploaded.name, uploaded.getvalue())
-    if pending:
-        review_import(store, *pending)
-
-    st.subheader("2. Other Data Sources")
-    st.caption("Each source has its own file, checks and history, and is stored apart from the monthly financial "
-               "figures. Nothing from these files changes the monthly results.")
-    for tab, name in zip(st.tabs([spec.title for spec in sources.SOURCES.values()]), sources.SOURCES):
-        with tab:
-            source_import(store, name)
-
-    st.subheader("3. Import History")
-    if store.imports.empty:
-        st.caption("Nothing imported yet.")
-    else:
-        log = store.imports.sort_values("import_id", ascending=False).copy()
-        log["imported_at"] = log["imported_at"].map(when)
-        st.dataframe(log.drop(columns=["file_hash"]), hide_index=True, width="stretch", column_config={
-            "import_id": "#", "file_name": "File", "imported_at": "Imported at", "scenarios": "Scenarios",
-            "months": "Months", "rows": "Rows", "warnings": "Warnings", "replaced_rows": "Rows replaced"})
-
-    st.subheader("4. Open Data-Check Warnings")
-    warnings = store.active_warnings()
-    if warnings.empty:
-        st.success("No open warnings for the imported figures.", icon=":material/check_circle:")
-    else:
-        files = store.imports.set_index("import_id")["file_name"]
-        shown = warnings.assign(file=warnings["import_id"].map(files))
-        st.dataframe(shown[["check", "message", "property_id", "month", "sheet", "excel_row", "file"]],
-                     hide_index=True, width="stretch", column_config={
-                         "check": "Check", "message": st.column_config.TextColumn("Details", width="large"),
-                         "property_id": "Hotel", "month": "Month", "sheet": "Sheet",
-                         "excel_row": st.column_config.NumberColumn("Excel row", format="%d"), "file": "File"})
-
-    st.subheader("5. Hotels and Groupings")
-    st.caption("From properties.csv. Every column except property_id, property_name and keys is a grouping. "
-               "Each hotel has one value per grouping, so no hotel is counted twice within a grouping.")
-    st.dataframe(store.properties, hide_index=True, width="stretch")
-
-    st.subheader("6. Blank Template")
-    st.download_button("Download the monthly Excel template", TEMPLATE_FILE.read_bytes(),
-                       file_name=TEMPLATE_FILE.name, icon=":material/download:")
-
-
-def review_import(store: DataStore, file_name: str, raw: bytes) -> None:
-    result = read_monthly_workbook(raw, file_name, store.properties)
     with st.container(border=True):
-        st.markdown(f"**Checking `{file_name}`**")
+        st.markdown(f"**{spec['label']}**")
+        sheet_text = ("Reads only the **Actual** sheet." if route == "actuals" else
+                      "Reads only the **Budget** sheet." if route == "budget" else
+                      "Reads **both** the Actual and the Budget sheet.")
+        st.caption(f"Excel in the monthly template format. {sheet_text} {UPLOADED_MEANS}")
+        st.download_button(f"{spec['what']} template (.xlsx)", monthly_template_bytes(template_sheets),
+                           file_name=f"TEMPLATE_{route}.xlsx", icon=":material/download:", key=f"template_{route}")
+        if workspace() == "demo" and samples:
+            st.caption("Fictional sample files:")
+            for file_name, caption in samples.items():
+                if st.button(caption, icon=":material/science:", key=f"sample_{route}_{file_name}"):
+                    st.session_state[f"pending_sample_{route}"] = file_name
+            if st.session_state.get(f"pending_sample_{route}"):
+                name = st.session_state[f"pending_sample_{route}"]
+                pending = (name, (SAMPLE_DIR / name).read_bytes())
+        if uploads_allowed():
+            uploaded = st.file_uploader(
+                spec["label"], type=["xlsx"] if MODE["hosted_demo"] else ["xlsx", "xlsm"],   # hosted: no .xlsm
+                key=f"uploader_{route}_{st.session_state.get('uploader_round', 0)}", help=upload_help())
+            if uploaded is not None:
+                pending = (uploaded.name, uploaded.getvalue())
+    return pending
+
+
+def actuals_section(store: DataStore, year: int) -> None:
+    st.subheader("1. Monthly Financials — Actuals", anchor=False)
+    status = coverage.actuals_status(store, year)
+    closed = status[status["Status"] != "Not closed yet"]
+    complete = int((closed["Status"] == "Complete").sum())
+    left, right = st.columns([2, 3], gap="medium")
+    with left:
+        pending = monthly_upload_card(store, "actuals", SAMPLE_IMPORTS, ["Actual"])
+    with right, st.container(border=True):
+        st.markdown(f"**{year} at a glance**")
+        reported = status["Properties reported"].str.split(" of ").str[0].astype(int)
+        latest = status.loc[reported > 0, "Month"]
+        warnings_open = int(status["Open warnings"].sum())
+        st.markdown(f"- **Closed months with complete actuals:** {complete} of {len(closed)}  \n"
+                    f"- **Latest month with actuals:** {latest.iloc[-1] if len(latest) else 'none yet'}  \n"
+                    f"- **Partial or missing closed months:** "
+                    + (", ".join(closed.loc[closed["Status"] != "Complete", "Month"]) or "none") + "  \n"
+                    f"- **Open warnings on {year} actuals:** {warnings_open}")
+        st.caption("Click a month in the table below for which file supplied each property, and any warnings.")
+    if pending:
+        review_import(store, *pending, route="actuals")
+
+    shown = status.drop(columns="month").assign(Imported=status["Imported"].map(lambda t: when(t) if t else ""))
+    fills = shown["Status"].map(lambda s: STATUS_STYLE[ACTUALS_STATUS[s]])
+    css = pd.DataFrame("", index=shown.index, columns=shown.columns)
+    css["Status"] = [f"background-color: {f[1]}; color: {f[2]}; font-weight: 600" for f in fills]
+    event = st.dataframe(shown.style.apply(lambda _: css, axis=None), hide_index=True, width="stretch",
+                         on_select="rerun", selection_mode="single-row", key=f"actuals_status_{year}",
+                         column_config={"Missing": st.column_config.TextColumn(width="medium"),
+                                        "Open warnings": st.column_config.NumberColumn(format="%d")})
+    if event.selection.rows:
+        month = status["month"].iloc[event.selection.rows[0]]
+        details = coverage.month_details(store, month)
+        with st.container(border=True):
+            st.markdown(f"**{month_label(month)}: actuals by property**")
+            st.dataframe(details["hotels"].assign(Imported=details["hotels"]["Imported"].map(
+                lambda t: when(t) if t else "")), hide_index=True, width="stretch")
+            if details["warnings"].empty:
+                st.caption("No open data-check warnings for this month's actuals.")
+            else:
+                st.dataframe(details["warnings"][["check", "message", "property_id", "excel_row"]], hide_index=True,
+                             width="stretch", column_config={
+                                 "check": "Check", "message": st.column_config.TextColumn("Details", width="large"),
+                                 "property_id": "Hotel",
+                                 "excel_row": st.column_config.NumberColumn("Excel row", format="%d")})
+
+    with st.expander("Have one workbook with both Actual and Budget sheets?"):
+        st.caption("Use this route to import both sheets at once (the original combined template). The preview "
+                   "lists both sheets before anything is imported; existing budget months still need the "
+                   "replacement confirmation.")
+        pending = monthly_upload_card(store, "combined", COMBINED_SAMPLES, None)
+    if pending:
+        review_import(store, *pending, route="combined")
+
+
+# --- 2. Budgets -------------------------------------------------------------------------------
+
+def budgets_section(store: DataStore, year: int) -> None:
+    st.subheader("2. Budgets", anchor=False)
+    left, right = st.columns([2, 3], gap="medium")
+    with left:
+        pending = monthly_upload_card(store, "budget", BUDGET_SAMPLES, ["Budget"])
+    with right, st.container(border=True):
+        st.markdown("**How budgets are stored**")
+        st.markdown(
+            "- One portfolio workbook **or** separate workbooks (for example one per property group) both work: "
+            "each budget row is stored by **scenario + property + month**.\n"
+            "- A file that overlaps budget months already loaded shows **exactly which property-months it "
+            "would replace** and needs your confirmation. Budgets are never combined or overwritten silently.\n"
+            "- Only the **Budget** sheet is read here; Actuals are never imported through this control.\n"
+            "- *Planned:* keeping several budget versions (such as a reforecast) for the same property-month "
+            "needs a future data-model change; today the latest confirmed import replaces the earlier one.")
+    if pending:
+        review_import(store, *pending, route="budget")
+
+    properties = store.properties
+    groups = ["All properties"] + [f"{d.label(c)}: {g}" for c in d.classification_columns(properties.columns)
+                                   for g in sorted(properties[c].unique())]
+    pick = st.selectbox("Budget coverage for", groups, key="budget_group")
+    ids = list(properties["property_id"])
+    if pick != "All properties":
+        label, group = pick.split(": ", 1)
+        column = next(c for c in d.classification_columns(properties.columns) if d.label(c) == label)
+        ids = list(properties.loc[properties[column] == group, "property_id"])
+    table = coverage.budget_coverage(store, year, ids)
+    full = int((table["Months"] == "12 of 12").sum())
+    st.caption(f"{year}: {full} of {len(table)} properties have a full-year budget. ✓ = budget loaded for that "
+               "month; – = missing.")
+    st.dataframe(table.assign(Imported=table["Imported"].map(lambda t: when(t) if t else "")), hide_index=True,
+                 width="stretch", column_config={"Missing months": st.column_config.TextColumn(width="medium")})
+
+
+# --- 3. Supporting Data ------------------------------------------------------------------------
+
+SUPPORTING = {
+    "pace": ("Forward Pace", "Business on the books for future stay months, as of a report date. Feeds the Forward "
+                             "Pace preview and its detail view.", "pace", "Open Forward Pace"),
+    "debt": ("Debt Service / DSCR", "Debt service, the agreed cash-flow figure and each loan's minimum DSCR. Feeds "
+                                    "the DSCR preview and the Debt Coverage view.", "debt", "Open Debt Coverage"),
+    "str": ("STR / Market Context", "STR competitive-set results, historical and forward. Feeds Guest & Market "
+                                    "Context and the Market Context view.", "market", "Open Market Context"),
+    "channel_mix": ("Revenue Mix", "Room revenue by booking channel (SellAway, Direct Booking, OTA, Other). Feeds "
+                                   "Revenue Mix on Portfolio Overview.", "overview", "Open Portfolio Overview"),
+}
+
+
+def supporting_card(store: DataStore, name: str) -> tuple | None:
+    title, purpose, page, link_label = SUPPORTING[name]
+    spec = sources.SOURCES[name]
+    state = coverage.source_status(store, name)
+    pending = None
+    with st.container(border=True):
+        head, badge = st.columns([3, 2], vertical_alignment="center")
+        head.markdown(f"**{title}**")
+        with badge.container(horizontal=True, horizontal_alignment="right"):
+            if state["loaded"]:
+                st.badge("Loaded", icon=":material/check_circle:", color="green")
+            else:
+                st.badge("No data yet", icon=":material/database:", color="gray")
+        st.caption(purpose)
+        if state["loaded"]:
+            period = state["latest_period"]
+            period_text = (f"as of {date_label(period)}" if name == "pace" else month_label(period[:7]))
+            total = len(store.properties)
+            st.markdown(f"**Latest period:** {period_text}  \n"
+                        f"**Latest import:** {state['latest_file']} · {when(state['imported'])}  \n"
+                        f"**Coverage:** {len(state['covered'])} of {total} properties"
+                        + (f" (missing: {', '.join(state['missing'])})" if state["missing"] else "") + "  \n"
+                        f"**Warnings at import:** {state['warnings']}")
+        else:
+            st.markdown("**Latest period:** none imported  \n**Coverage:** 0 properties")
+        with st.container(horizontal=True, gap="small"):
+            st.download_button("Template", sources.template_bytes(name), file_name=f"TEMPLATE_{name}.xlsx",
+                               icon=":material/download:", key=f"template_{name}")
+            if workspace() == "demo" and st.button("Load the fictional demo file", icon=":material/science:",
+                                                   key=f"demo_{name}"):
+                st.session_state[f"pending_demo_{name}"] = True
+        if workspace() == "demo" and st.session_state.get(f"pending_demo_{name}"):
+            pending = (SOURCE_DEMOS[name], (SAMPLE_DIR / SOURCE_DEMOS[name]).read_bytes())
+        if uploads_allowed():
+            uploaded = st.file_uploader(f"Upload {title} (.xlsx or .csv)", type=["xlsx", "csv"],
+                                        key=f"source_upload_{name}_{st.session_state.get('uploader_round', 0)}",
+                                        help=upload_help())
+            if uploaded is not None:
+                pending = (uploaded.name, uploaded.getvalue())
+        with st.popover("File format", icon=":material/table_view:"):
+            st.markdown(f"**{spec.file_hint}.** {spec.note}")
+            st.dataframe(pd.DataFrame([{"Column": c.heading, "Required": "Yes" if c.required else "Optional",
+                                        "Meaning": c.note + (f" Allowed: {', '.join(c.choices)}." if c.choices else "")}
+                                       for c in spec.columns]), hide_index=True, width="stretch")
+        link(page, link_label, ":material/open_in_new:")
+    return (name, *pending) if pending else None
+
+
+def guest_reviews_card() -> None:
+    with st.container(border=True):
+        head, badge = st.columns([3, 2], vertical_alignment="center")
+        head.markdown("**Guest Reviews**")
+        with badge.container(horizontal=True, horizontal_alignment="right"):
+            st.badge("Not yet supported", icon=":material/block:", color="gray")
+        st.caption("TrustYou / guest review data is not connected, and there is no upload yet.")
+        st.markdown("A future manual export would need, per property and month: **Property ID**, **review month** "
+                    "(or review date), **source** (e.g. TrustYou, Google), **overall score and its scale**, "
+                    "**number of reviews**, and the **as-of date**; optionally response rate and category scores "
+                    "(cleanliness, service, value).")
+
+
+def supporting_section(store: DataStore) -> None:
+    st.subheader("3. Supporting Data", anchor=False)
+    st.caption("Each source has its own file, checks and history, and is stored apart from the monthly financial "
+               "figures; nothing here changes the monthly results. " + UPLOADED_MEANS)
+    pending = []
+    row1 = st.columns(2, gap="medium")
+    with row1[0]:
+        pending.append(supporting_card(store, "pace"))
+    with row1[1]:
+        pending.append(supporting_card(store, "debt"))
+    st.markdown("**Guest & Market Context**")
+    row2 = st.columns(2, gap="medium")
+    with row2[0]:
+        pending.append(supporting_card(store, "str"))
+    with row2[1]:
+        guest_reviews_card()
+    row3 = st.columns(2, gap="medium")
+    with row3[0]:
+        pending.append(supporting_card(store, "channel_mix"))
+    for item in pending:
+        if item:
+            review_source_import(store, *item)
+
+
+def detail_expanders(store: DataStore) -> None:
+    st.subheader("Details", anchor=False)
+    with st.expander(f"Import history: monthly financials ({len(store.imports)})"):
+        if store.imports.empty:
+            st.caption("Nothing imported yet.")
+        else:
+            log = store.imports.sort_values("import_id", ascending=False).copy()
+            log["imported_at"] = log["imported_at"].map(when)
+            st.dataframe(log.drop(columns=["file_hash"]), hide_index=True, width="stretch", column_config={
+                "import_id": "#", "file_name": "File", "imported_at": "Imported at", "scenarios": "Scenarios",
+                "months": "Months", "rows": "Rows", "warnings": "Warnings", "replaced_rows": "Rows replaced"})
+    with st.expander(f"Import history: supporting data ({len(store.source_imports)})"):
+        if store.source_imports.empty:
+            st.caption("No supporting file imported yet.")
+        else:
+            log = store.source_imports.sort_values("import_id", ascending=False).copy()
+            log["imported_at"] = log["imported_at"].map(when)
+            log["source"] = log["source"].map(lambda s: SUPPORTING[s][0])
+            st.dataframe(log.drop(columns=["file_hash"]), hide_index=True, width="stretch", column_config={
+                "import_id": "#", "source": "Source", "file_name": "File", "imported_at": "Imported at",
+                "periods": "Periods", "rows": "Rows", "warnings": "Warnings", "replaced_rows": "Rows replaced"})
+    warnings = store.active_warnings()
+    with st.expander(f"Open data-check warnings ({len(warnings)})"):
+        if warnings.empty:
+            st.caption("No open warnings for the imported figures.")
+        else:
+            files = store.imports.set_index("import_id")["file_name"]
+            shown = warnings.assign(file=warnings["import_id"].map(files))
+            st.dataframe(shown[["check", "message", "property_id", "month", "sheet", "excel_row", "file"]],
+                         hide_index=True, width="stretch", column_config={
+                             "check": "Check", "message": st.column_config.TextColumn("Details", width="large"),
+                             "property_id": "Hotel", "month": "Month", "sheet": "Sheet",
+                             "excel_row": st.column_config.NumberColumn("Excel row", format="%d"), "file": "File"})
+    with st.expander(f"Hotels and groupings ({len(store.properties)})"):
+        st.caption("From properties.csv. Every column except property_id, property_name and keys is a grouping. "
+                   "Each hotel has one value per grouping, so no hotel is counted twice within a grouping.")
+        st.dataframe(store.properties, hide_index=True, width="stretch")
+
+
+def review_import(store: DataStore, file_name: str, raw: bytes, route: str = "combined") -> None:
+    """Preview, checks and Import for one monthly file through one route (Actuals, Budget or both)."""
+    spec = ROUTES[route]
+    result = read_monthly_workbook(raw, file_name, store.properties, scenarios=spec["sheets"])
+    with st.container(border=True):
+        st.markdown(f"**Preview (not imported yet): `{file_name}`** · {spec['what']}"
+                    + (" · :gray-badge[Fictional sample file]" if (SAMPLE_DIR / file_name).exists() else ""))
+        if result.ignored_sheets:
+            st.info(f"This file also has a **{' and '.join(result.ignored_sheets)}** sheet. It will **not** be "
+                    f"imported here; use the {'Budget' if 'Budget' in result.ignored_sheets else 'Monthly Actuals'} "
+                    "upload or the combined-workbook route for it.", icon=":material/info:")
         if not result.rows.empty:
             overview = (result.rows.groupby("scenario")
                         .agg(hotels=("property_id", "nunique"), rows=("month", "size"),
                              months=("month", lambda m: ", ".join(month_label(x, short=True)
                                                                   for x in sorted(m.unique()))))
                         .reset_index())
+            if route == "combined":
+                st.caption("Both sheets found in this file will be imported: "
+                           + "; ".join(f"{r.scenario} ({r.rows} rows)" for r in overview.itertuples()) + ".")
             st.dataframe(overview, hide_index=True)
 
         errors, warnings = result.errors, result.warnings
@@ -1334,7 +1569,7 @@ def review_import(store: DataStore, file_name: str, raw: bytes) -> None:
             st.warning(f"{len(warnings)} warning(s). The figures can be imported but will be flagged.",
                        icon=":material/warning:")
         if not errors and not warnings:
-            st.success("All checks passed.", icon=":material/check_circle:")
+            st.success("All checks passed. Not imported yet: click Import.", icon=":material/check_circle:")
         if result.issues:
             issues = pd.DataFrame([vars(i) for i in result.issues])
             st.dataframe(issues[["severity", "check", "message", "sheet", "excel_row", "property_id", "month"]],
@@ -1347,68 +1582,36 @@ def review_import(store: DataStore, file_name: str, raw: bytes) -> None:
         earlier = store.earlier_import_of_same_file(result.file_hash)
         if earlier is not None:
             st.info(f"This exact file was already imported on {when(earlier['imported_at'])}.")
-        duplicates = store.duplicates_of(result.rows)
+        replacements = coverage.replacement_preview(store, result.rows)
         replace = False
-        if not duplicates.empty:
-            months = ", ".join(sorted({f"{s} {month_label(m, short=True)}"
-                                       for s, m in zip(duplicates["scenario"], duplicates["month"])}))
-            st.warning(f"Duplicate month: {len(duplicates)} hotel-month(s) in this file were already imported "
-                       f"({months}). Importing would replace those figures.", icon=":material/content_copy:")
-            replace = st.checkbox("Replace the previously imported figures for these months")
+        if not replacements.empty:
+            st.warning(f"**{len(replacements)} property-month(s) in this file are already loaded.** Importing would "
+                       "replace exactly these rows (nothing else changes):", icon=":material/content_copy:")
+            st.dataframe(replacements.assign(Imported=replacements["Imported"].map(lambda t: when(t) if t else "")),
+                         hide_index=True, width="stretch", column_config={
+                             c: st.column_config.NumberColumn(format="$%,.0f") for c in
+                             ("Total revenue now", "Total revenue in new file", "GOP now", "GOP in new file")})
+            replace = st.checkbox("Replace the previously imported figures for these property-months",
+                                  key=f"replace_{route}")
 
-        blocked = bool(errors) or result.rows.empty or (not duplicates.empty and not replace)
-        if st.button("Import", type="primary", disabled=blocked, icon=":material/done:"):
+        blocked = bool(errors) or result.rows.empty or (not replacements.empty and not replace)
+        if st.button("Import", type="primary", disabled=blocked, icon=":material/done:", key=f"import_{route}"):
             import_id = store.add_import(result, replace=replace)
-            st.session_state.flash = (f"Imported {file_name} as import #{import_id} "
-                                      f"({len(result.rows)} rows, {len(warnings)} warning(s)).")
+            st.session_state.flash = (f"Imported {file_name} as import #{import_id} ({len(result.rows)} rows, "
+                                      f"{len(warnings)} warning(s)). It passed validation and now shows in the status.")
             if ai_briefing.ai_allowed(MODE["hosted_demo"], workspace()):
-                st.session_state.flash += (" It passed validation: **Draft AI Briefing** is available under the "
-                                           "Management Briefing on Portfolio Overview.")
-            st.session_state.pop("pending_sample", None)
+                st.session_state.flash += (" **Draft AI Briefing** is available under the Management Briefing on "
+                                           "Portfolio Overview.")
+            st.session_state.pop(f"pending_sample_{route}", None)
             st.session_state.uploader_round = st.session_state.get("uploader_round", 0) + 1
             st.rerun()
-
-
-def source_import(store: DataStore, name: str) -> None:
-    """Import one separate source (channel mix, pace, STR or debt), with its own checks and history."""
-    spec = sources.SOURCES[name]
-    st.markdown(f"**{spec.file_hint}.** {spec.note}")
-    st.dataframe(pd.DataFrame([{"Column": c.heading, "Required": "Yes" if c.required else "Optional",
-                                "Meaning": c.note + (f" Allowed: {', '.join(c.choices)}." if c.choices else "")}
-                               for c in spec.columns]), hide_index=True, width="stretch",
-                 column_config={"Meaning": st.column_config.TextColumn(width="large")})
-    st.download_button(f"Download the blank {spec.title} template", sources.template_bytes(name),
-                       file_name=f"TEMPLATE_{name}.xlsx", icon=":material/download:", key=f"template_{name}")
-    pending = None
-    if workspace() == "demo":
-        if st.button("Load the fictional demo file", icon=":material/science:", key=f"demo_{name}"):
-            st.session_state[f"pending_demo_{name}"] = True
-        if st.session_state.get(f"pending_demo_{name}"):
-            file_name = SOURCE_DEMOS[name]
-            pending = (file_name, (SAMPLE_DIR / file_name).read_bytes())
-    if uploads_allowed():
-        uploaded = st.file_uploader(f"{spec.title} file (.xlsx or .csv)", type=["xlsx", "csv"],
-                                    key=f"source_upload_{name}_{st.session_state.get('uploader_round', 0)}",
-                                    help=upload_help())
-        if uploaded is not None:
-            pending = (uploaded.name, uploaded.getvalue())
-    if pending:
-        review_source_import(store, name, *pending)
-    log = store.source_imports[store.source_imports["source"] == name]
-    if log.empty:
-        st.caption(f"No {spec.title} file imported yet.")
-    else:
-        log = log.sort_values("import_id", ascending=False).assign(imported_at=lambda t: t["imported_at"].map(when))
-        st.dataframe(log.drop(columns=["file_hash", "source"]), hide_index=True, width="stretch", column_config={
-            "import_id": "#", "file_name": "File", "imported_at": "Imported at", "periods": "Periods",
-            "rows": "Rows", "warnings": "Warnings", "replaced_rows": "Rows replaced"})
 
 
 def review_source_import(store: DataStore, name: str, file_name: str, raw: bytes) -> None:
     spec = sources.SOURCES[name]
     result = sources.read_source_file(name, raw, file_name, store.properties)
     with st.container(border=True):
-        st.markdown(f"**Checking `{file_name}`** · {spec.title}"
+        st.markdown(f"**Preview (not imported yet): `{file_name}`** · {spec.title}"
                     + (" · :gray-badge[Fictional demo file]" if file_name.startswith("DEMO_") else ""))
         st.caption(f"{len(result.rows)} valid row(s), {len(result.errors)} error(s), {len(result.warnings)} warning(s).")
         if result.errors:
@@ -1431,7 +1634,8 @@ def review_source_import(store: DataStore, name: str, file_name: str, raw: bytes
         blocked = bool(result.errors) or result.rows.empty or (not duplicates.empty and not replace)
         if st.button("Import", type="primary", disabled=blocked, icon=":material/done:", key=f"import_{name}"):
             import_id = store.add_source_import(name, result, replace=replace)
-            st.session_state.flash = f"Imported {file_name} ({spec.title}) as source import #{import_id}."
+            st.session_state.flash = (f"Imported {file_name} ({spec.title}) as source import #{import_id}. It passed "
+                                      "validation and now shows on its card.")
             st.session_state.pop(f"pending_demo_{name}", None)
             st.session_state.uploader_round = st.session_state.get("uploader_round", 0) + 1
             st.rerun()

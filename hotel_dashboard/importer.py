@@ -16,7 +16,7 @@ import hashlib
 import io
 import numbers
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -53,6 +53,7 @@ class ImportResult:
     file_hash: str
     rows: pd.DataFrame     # one row per scenario + hotel + month, numbers already cleaned
     issues: list[Issue]
+    ignored_sheets: list[str] = field(default_factory=list)   # Actual/Budget sheets NOT read (see scenarios=)
 
     @property
     def errors(self) -> list[Issue]:
@@ -144,11 +145,13 @@ def _days_in_month(month: str) -> int:
 # ------------------------------------------------------------------------------------
 
 def read_monthly_workbook(source, file_name: str | None, properties: pd.DataFrame,
-                          today: date | None = None) -> ImportResult:
+                          today: date | None = None, scenarios=None) -> ImportResult:
     """
     source      - a file path, or the raw bytes of an uploaded file
     properties  - the hotel list (from properties.csv), used to recognise property IDs
     today       - used to spot "actual" figures for a month that hasn't closed yet
+    scenarios   - which sheets to read, e.g. ["Actual"] for an Actuals-only upload; None reads both.
+                  Any other Actual/Budget sheet in the file is NOT read and is listed in ignored_sheets.
     """
     raw = Path(source).read_bytes() if isinstance(source, (str, Path)) else bytes(source)
     file_name = file_name or Path(str(source)).name
@@ -163,8 +166,15 @@ def read_monthly_workbook(source, file_name: str | None, properties: pd.DataFram
         return ImportResult(file_name, file_hash, _empty_rows(), issues)
 
     by_lower_name = {name.strip().lower(): name for name in sheets}
-    found = [s for s in d.SCENARIO_SHEETS if s.lower() in by_lower_name]
+    wanted = [s for s in d.SCENARIO_SHEETS if scenarios is None or s in scenarios]
+    present = [s for s in d.SCENARIO_SHEETS if s.lower() in by_lower_name]
+    found = [s for s in present if s in wanted]
+    ignored = [s for s in present if s not in wanted]
 
+    if not found and ignored:
+        issues.append(Issue(ERROR, "Wrong upload", f"This file has no '{' or '.join(wanted)}' sheet, only "
+                                                   f"'{' and '.join(ignored)}'. Use the matching upload instead."))
+        return ImportResult(file_name, file_hash, _empty_rows(), issues, ignored)
     if not found:
         if any(_header_key(c) in _DAILY_HEADERS for df in sheets.values() for c in df.columns):
             issues.append(Issue(ERROR, "Wrong file type",
@@ -173,7 +183,7 @@ def read_monthly_workbook(source, file_name: str | None, properties: pd.DataFram
                                 "monthly results."))
         else:
             issues.append(Issue(ERROR, "Missing field",
-                                f"No 'Actual' or 'Budget' sheet found. Sheets in this file: {', '.join(sheets)}."))
+                                f"No '{' or '.join(wanted)}' sheet found. Sheets in this file: {', '.join(sheets)}."))
         return ImportResult(file_name, file_hash, _empty_rows(), issues)
 
     known = properties.set_index("property_id")
@@ -185,7 +195,7 @@ def read_monthly_workbook(source, file_name: str | None, properties: pd.DataFram
     rows = pd.DataFrame(all_rows) if all_rows else _empty_rows()
     _check_duplicates(rows, issues)
     rows = rows.drop(columns=["_excel_row"], errors="ignore")
-    return ImportResult(file_name, file_hash, rows, issues)
+    return ImportResult(file_name, file_hash, rows, issues, ignored)
 
 
 def _empty_rows() -> pd.DataFrame:

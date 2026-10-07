@@ -46,10 +46,10 @@ BELOW_GOP_SPLIT = {"insurance_expense": 0.38, "real_estate_tax": 0.34, "personal
                    "other_taxes": 0.06, "misc_other_expense": None}
 
 
-def build_row(hotel, month, occupancy, adr, noise):
+def build_row(hotel, month, occupancy, adr, noise, year=YEAR):
     """One hotel-month of figures. Totals are built from the rounded lines, so they reconcile exactly."""
     pid, _, keys, *_ = hotel
-    days = calendar.monthrange(YEAR, month)[1]
+    days = calendar.monthrange(year, month)[1]
     available = keys * days
     sold = round(available * occupancy)
     rooms_revenue = round(sold * adr, 2)
@@ -70,7 +70,7 @@ def build_row(hotel, month, occupancy, adr, noise):
     ebitda = round(gop - other_expenses, 2)
     capital_reserve = round(total_revenue * 0.04, 2)
     return {
-        "property_id": pid, "month": date(YEAR, month, 1),
+        "property_id": pid, "month": date(year, month, 1),
         "rooms_available": available, "rooms_sold": sold, "rooms_revenue": rooms_revenue,
         "other_revenue": other_revenue, "total_revenue": total_revenue, **expenses,
         "total_operating_expenses": total_opex, "gop": gop, "other_expenses": other_expenses,
@@ -269,6 +269,31 @@ def make_source_demos(budget, actual):
         (OUT / f"TEMPLATE_{source}.xlsx").write_bytes(sources.template_bytes(source))
 
 
+def make_2027_budgets():
+    """Two separate fictional 2027 budget workbooks (one per property group), for the separate-budgets demo."""
+    legacy = [h for h in HOTELS if h[4] == "Legacy Assets"]
+    others = [h for h in HOTELS if h[4] != "Legacy Assets"]
+    for name, hotels in (("budget_2027_legacy_assets.xlsx", legacy), ("budget_2027_other_properties.xlsx", others)):
+        rows = []
+        for month in range(1, 13):
+            for hotel in hotels:
+                occupancy, adr = budget_rates(hotel, month)
+                rows.append(build_row(hotel, month, min(occupancy + 0.01, 0.93), round(adr * 1.03, 2),
+                                      noise=lambda: 1.0, year=YEAR + 1))
+        write_workbook(OUT / name, {"Budget": rows})
+
+
+def make_combined_sample():
+    """One fictional workbook with BOTH sheets (August actuals + August budget), for the combined route."""
+    import pandas as pd
+    actual = pd.read_excel(OUT / "monthly_2026-08.xlsx", sheet_name="Actual")
+    budget = pd.read_excel(OUT / "budget_2026.xlsx", sheet_name="Budget")
+    budget = budget[pd.to_datetime(budget["Month"]).dt.month == CLOSE_MONTH]
+    with pd.ExcelWriter(OUT / "combined_2026-08_actual_and_budget.xlsx", engine="openpyxl") as writer:
+        actual.to_excel(writer, sheet_name="Actual", index=False)
+        budget.to_excel(writer, sheet_name="Budget", index=False)
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     budget, actual = make_data()
@@ -290,6 +315,8 @@ def main():
     broken[2]["total_revenue"] = round(broken[2]["total_revenue"] + 1250, 2)   # total does not reconcile
     write_workbook(OUT / "monthly_2026-08_with_errors.xlsx", {"Actual": broken})
     make_source_demos(budget, actual)
+    make_2027_budgets()
+    make_combined_sample()
     print(f"Wrote fictional sample files to {OUT}")
 
 
