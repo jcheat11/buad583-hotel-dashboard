@@ -179,7 +179,7 @@ sample_data/               fictional hotels, monthly files, TEMPLATE_* and DEMO_
 packaging/                 portable Windows demo build and its tests
 static/fonts/              bundled typefaces: Inter (body) and Space Grotesk (headings), SIL Open Font
                            License (OFL-*.txt); served by the app itself, so nothing loads from a font service
-assets/                    the Torchfolio logo
+assets/                    the Torchfolio logo and browser-tab icon (scripts/make_icon.py builds the icon)
 scripts/make_sample_data.py  regenerates the fictional files
 tests/                     automated tests (fictional data only)
 local_data/                YOUR real data; created when you set it up; never shared

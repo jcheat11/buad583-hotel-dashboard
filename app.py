@@ -43,6 +43,7 @@ from hotel_dashboard.store import DataStore
 APP_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_DIR = APP_DIR / "local_data"
 LOGO_FILE = APP_DIR / "assets" / "torchfolio-portfolio-flame-black-orange.png"   # black wordmark: light background only
+ICON_FILE = APP_DIR / "assets" / "torchfolio-icon.png"     # browser-tab icon (scripts/make_icon.py builds it)
 
 MODE = {"hosted_demo": False}   # set by main(); True only when started from demo_app.py
 PAGES: dict = {}                 # the app's pages, filled in by main() (detail views are linked from previews)
@@ -865,6 +866,12 @@ def ai_status_badge(state: dict) -> None:
         st.badge("No AI draft yet", icon=":material/smart_toy:", color="gray")
 
 
+def ai_bullets(items: list) -> str:
+    """The validated findings of one section as a short bullet list (the model returns plain sentences)."""
+    return "\n".join("- " + ("**Possible cause (unverified):** " if item["kind"] == ai_briefing.POSSIBLE_CAUSE
+                             else "") + md(ai_briefing.plain_text(item["text"])) for item in items)
+
+
 def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, month: str,
                    warnings: pd.DataFrame) -> None:
     """Hosted fictional demo only (overview): the Draft button and the retained findings, concisely."""
@@ -905,10 +912,8 @@ def ai_draft_panel(store: DataStore, ids, scope: metrics.Scope, label: str, mont
                 st.caption(title)
                 if not items:
                     st.caption("No item passed validation for this section.")
-                for item in items:
-                    label_text = "**Possible cause (unverified):** " if item["kind"] == ai_briefing.POSSIBLE_CAUSE else ""
-                    st.markdown(label_text + md(item["text"]))
-                    st.caption("Evidence: " + ", ".join(item["evidence"]))
+                else:
+                    st.markdown(ai_bullets(items))
         with st.container(horizontal=True, vertical_alignment="center"):
             st.caption(f"Drafted {when(held.created_at)} by {held.model} · {len(held.removed)} claim(s) removed by "
                        "validation. Cited evidence, removed claims and approval are on Review Log.")
@@ -1831,7 +1836,7 @@ def signals_page() -> None:
 
 def main(hosted_demo: bool = False) -> None:
     MODE["hosted_demo"] = hosted_demo
-    st.set_page_config(page_title="Torchfolio", page_icon=":material/apartment:", layout="wide",
+    st.set_page_config(page_title="Torchfolio", page_icon=str(ICON_FILE), layout="wide",
                        initial_sidebar_state="collapsed")
     PAGES.update(
         overview=st.Page(overview_page, title="Portfolio Overview", icon=":material/space_dashboard:", default=True),

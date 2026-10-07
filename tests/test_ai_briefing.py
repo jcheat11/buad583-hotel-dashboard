@@ -106,6 +106,24 @@ class ValidationTests(unittest.TestCase):
                              "kind": FACT}], section="why_it_matters")
         self.assertEqual([i["kind"] for i in draft.sections["matters"]], [POSSIBLE_CAUSE, POSSIBLE_CAUSE])
 
+    def test_list_markers_and_line_breaks_are_removed_before_the_checks(self):
+        for marker in ("- ", "• ", "1. ", "* "):
+            draft = self.check([{"text": marker + self.fact["text"] + "\nStill on plan.", "evidence": [self.fact["id"]],
+                                 "kind": FACT}])
+            kept = draft.sections["changed"]
+            self.assertEqual(len(kept), 1, marker)                     # "1." is a list marker, not a figure
+            self.assertEqual(kept[0]["text"], self.fact["text"] + " Still on plan.")
+        draft = self.check([{"text": "- RevPAR rose 99.9%.", "evidence": [self.fact["id"]], "kind": FACT}])
+        self.assertFalse(draft.sections["changed"])                     # cleaning never relaxes the number check
+
+    def test_style_instructions_keep_the_evidence_rules(self):
+        text = ai_briefing.INSTRUCTIONS
+        for rule in ("Copy every figure EXACTLY", "possible_cause", "never as established fact",
+                     "no bullet characters", "Lead with the point"):
+            self.assertIn(rule, text)
+        self.assertFalse(ai_briefing.numbers_in(text.replace("E2", "").replace("E7", ""))
+                         - {"3", "12", "25"})                           # no example figure the model could copy
+
     def test_at_most_three_items_per_section(self):
         item = {"text": "Results were mixed.", "evidence": [self.fact["id"]], "kind": FACT}
         draft = self.check([item] * 5)
@@ -202,6 +220,56 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("Possible cause (unverified)", text)              # relabelled although the model said fact
         self.assertIn("Management Briefing", text)                       # rule-based briefing still there
         self.assertFalse([b for b in at.get("download_button") if "AI draft" in b.label])   # locked until approved
+
+    def test_findings_show_as_bullets_and_every_shown_number_is_in_its_evidence(self):
+        def styled_model(url, **kwargs):          # adds list markers and an invented figure, as a model might
+            packet = json.loads(kwargs["json"]["contents"][0]["parts"][0]["text"])
+            draft = faithful_draft(packet)
+            for items in draft.values():
+                for item in items:
+                    item["text"] = "- Worth noting: " + item["text"]
+            draft["what_changed"].append({"text": "RevPAR jumped 99.9% to $512.34.",
+                                          "evidence": draft["what_changed"][0]["evidence"], "kind": FACT})
+            return response(200, gemini_reply(draft))
+
+        at = self.open()
+        with mock.patch(POST, side_effect=styled_model):
+            at.run()
+            before = page_text(at)
+            self.assertIn("No AI draft yet", before)                     # before: rule-based cards only
+            self.assertIn("What Changed", before)
+            self.button(at, "Draft AI Briefing").click().run()
+        self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
+        draft = at.session_state["ai_draft"]
+        bullets = [m.value.replace("\\$", "$") for m in at.markdown
+                   if m.value.startswith(("- Worth noting", "- **Possible cause"))]
+        self.assertEqual(len(bullets), 3)                                 # one list per section
+        shown = [line[2:] for block in bullets for line in block.split("\n")]
+        self.assertTrue(all(line.startswith(("Worth noting", "**Possible cause")) for line in shown), shown)
+        self.assertFalse([line for line in shown if line.startswith(("-", "•"))])   # no doubled markers
+        self.assertNotIn("512.34", "".join(shown))                         # invented figure never displayed
+        self.assertFalse([c.value for c in at.caption if c.value.startswith("Evidence: ")])   # IDs on Review Log
+        # Every number on screen appears in the evidence its finding cites (the existing validation rule).
+        evidence = {e["id"]: e for e in july_packet()["evidence"]}
+        kept = [item for items in draft.sections.values() for item in items]
+        self.assertEqual(len(shown), len(kept))
+        for line, item in zip(shown, kept):
+            allowed = set().union(*(ai_briefing.numbers_in(evidence[e]["text"] + " " + evidence[e]["source"])
+                                    for e in item["evidence"]))
+            self.assertTrue(ai_briefing.numbers_in(line) <= allowed, line)
+        self.assertEqual(draft.numbers_total - draft.numbers_supported, 2)   # only the removed item's 2 figures
+        self.assertEqual(len(draft.removed), 1)
+
+    def test_approved_download_is_readable(self):
+        packet = july_packet()
+        draft = ai_briefing.validate(faithful_draft(packet), packet, "test-model", "fp")
+        text = ai_briefing.draft_markdown(draft, packet, "Pat Reviewer", "7 Oct 2026, 10:00", "Looks right.")
+        lines = text.splitlines()
+        findings = [l for l in lines if l.startswith("- ")]
+        self.assertEqual(len(findings), 3)
+        self.assertTrue(all(not l[2:].startswith(("-", "•")) for l in findings))
+        self.assertTrue(any(l.startswith("    - Evidence E") for l in lines))   # evidence nested under each finding
+        self.assertIn("## Reviewer notes", text)
 
     def test_selection_change_discards_the_draft(self):
         at = self.open()

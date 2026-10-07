@@ -13,6 +13,26 @@ def imports_screen(hosted_demo):
     app.imports_page()
 
 
+def page_config_used():
+    """Runs the hosted app and records the icon it passes to st.set_page_config."""
+    from unittest import mock
+
+    import streamlit as st
+
+    import app
+    real = st.set_page_config
+
+    def record(*args, **kwargs):
+        st.session_state["page_icon"] = kwargs.get("page_icon")
+        return real(*args, **kwargs)
+
+    try:
+        with mock.patch.object(app.st, "set_page_config", record):
+            app.main(hosted_demo=True)
+    finally:
+        app.MODE["hosted_demo"] = False
+
+
 def other_screens():
     import app
     app.definitions_page()
@@ -40,6 +60,20 @@ class AppTests(unittest.TestCase):
         self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
         self.assertEqual(len(at.get("image")), 1)
         self.assertEqual(at.title[0].value, "Portfolio Overview")
+
+    def test_browser_tab_icon_is_the_torchfolio_symbol(self):
+        import app
+        from PIL import Image
+        icon = Image.open(app.ICON_FILE)
+        self.assertEqual((icon.size, icon.mode), ((64, 64), "RGBA"))
+        self.assertEqual(icon.getpixel((32, 4))[3], 255)                # white tile: readable on dark tabs too
+        self.assertEqual(icon.getpixel((0, 0))[3], 0)                   # rounded corners
+        r, g, b, a = (icon.getchannel(c).tobytes() for c in "RGBA")
+        orange = sum(1 for p in zip(r, g, b, a) if p[3] > 200 and p[0] > 200 and p[2] < 120 and p[0] - p[1] > 60)
+        self.assertGreater(orange, 20)                                  # the flame survives at this size
+        at = AppTest.from_function(page_config_used, default_timeout=60).run()
+        self.assertEqual(len(at.exception), 0, [e.value for e in at.exception])
+        self.assertEqual(at.session_state["page_icon"], str(app.ICON_FILE))
 
     def test_local_app_offers_file_upload(self):
         at = AppTest.from_function(imports_screen, args=(False,), default_timeout=60).run()

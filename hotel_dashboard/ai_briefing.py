@@ -123,16 +123,32 @@ def packet_fingerprint(packet: dict, context: str) -> str:
 
 
 # ------------------------------------------------------------------------------ the model call
-INSTRUCTIONS = """You draft a short monthly hotel asset-management briefing for an asset manager.
-Use ONLY the evidence items provided. Rules:
+INSTRUCTIONS = """You are an experienced hotel asset manager writing this month's briefing for a colleague.
+Use ONLY the evidence items provided.
+
+Evidence rules (strict):
 - Three sections: what_changed, why_it_matters, what_needs_a_decision. At most 3 items per section.
-- Every item cites the evidence IDs it relies on (e.g. ["E2","E7"]). Do not rely on anything not in the evidence.
+- Every item cites the evidence IDs it relies on (e.g. ["E2","E7"]) in its "evidence" field. Do not rely on
+  anything not in the evidence.
 - Copy every figure EXACTLY as written in the cited evidence (same digits, $, %, commas). Do not calculate,
   round, convert or combine figures. If a figure isn't in the evidence, don't write one.
 - Items with kind "possible_cause" in the evidence are unverified. If you mention a possible cause, set the
   item's kind to "possible_cause" and phrase it as something to check, never as established fact.
-- what_needs_a_decision: name the property or line and the decision to consider; cite the flag or threshold.
-- Plain, concise business English. No headings, no markdown."""
+
+Style:
+- Each item is one short sentence (about 12 to 25 words) that a busy asset manager would actually say.
+- Lead with the point: the business meaning or the action, then at most one or two supporting figures.
+  Good: "[Hotel] is giving back margin on labor, which ran [figure] over budget." Not: "Labor expense for
+  [Hotel] was [figure] compared with a budget of [figure]." ([Hotel] and [figure] are placeholders: use the
+  names and figures from the evidence.)
+- what_changed: the few movements that matter most, not a list of every metric.
+- why_it_matters: the consequence for profit, cash flow, covenants or the plan.
+- what_needs_a_decision: start with the action (review, approve, follow up, hold) and name the property or
+  line; cite the flag or threshold behind it.
+- Plain business language. Vary how items begin; don't repeat the same phrase across items. No jargon
+  beyond standard hotel terms (RevPAR, ADR, GOP, NOI, EBITDA, DSCR).
+- Write plain sentences only: no bullet characters, numbering, headings, markdown or evidence IDs in the
+  text; the app formats the list itself."""
 
 ITEM_SCHEMA = {"type": "OBJECT", "properties": {
     "text": {"type": "STRING"},
@@ -185,6 +201,14 @@ NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 EVIDENCE_ID = re.compile(r"\bE\d+\b")
 # Hedged cause language in an item the model called a fact: shown as a possible cause instead.
 CAUSE_WORDS = re.compile(r"\b(possibl[ey]|might|could|perhaps|likely|unverified|may have|may be)\b", re.I)
+# A list marker the model added despite the instructions (the app draws the bullets itself).
+LIST_MARKER = re.compile(r"^\s*(?:[-*•‣▪]|\d{1,2}[.)])\s+")
+
+
+def plain_text(text) -> str:
+    """One plain sentence for a bullet: no leading list marker, no line breaks, no markdown emphasis."""
+    text = LIST_MARKER.sub("", " ".join(str(text).split()))
+    return text.replace("**", "").replace("__", "").strip()
 
 
 def _normalise(number: str) -> str:
@@ -226,7 +250,7 @@ def validate(raw: dict, packet: dict, model: str, packet_fp: str) -> Draft:
             if not isinstance(item, dict):
                 removed.append((key, str(item)[:120], "not a briefing item"))
                 continue
-            text = str(item.get("text", "")).strip()[:MAX_ITEM_CHARACTERS]
+            text = plain_text(item.get("text", ""))[:MAX_ITEM_CHARACTERS]
             cited = [str(e).strip() for e in item.get("evidence") or [] if str(e).strip()]
             found = numbers_in(text)
             allowed = heading | set().union(*(numbers_in(evidence[e]["text"] + " " + evidence[e]["source"])
@@ -260,10 +284,14 @@ def draft_markdown(draft: Draft, packet: dict, reviewer: str, reviewed_at: str, 
     evidence = {item["id"]: item for item in packet["evidence"]}
     for key, title in briefing.SECTIONS.items():
         lines += [f"## {title}", ""]
+        if not draft.sections[key]:
+            lines.append("- No finding passed validation for this section.")
         for item in draft.sections[key]:
             label = "Possible cause (unverified): " if item["kind"] == POSSIBLE_CAUSE else ""
-            lines.append(f"- {label}{item['text']}  ")
-            lines.append("  Evidence: " + "; ".join(f"{e}: {evidence[e]['text']}" for e in item["evidence"]))
+            lines.append(f"- {label}{plain_text(item['text'])}")
+            for e in item["evidence"]:                         # the cited evidence, as indented sub-points
+                source = f" (source: {evidence[e]['source']})" if evidence[e]["source"] else ""
+                lines.append(f"    - Evidence {e}: {evidence[e]['text']}{source}")
         lines.append("")
     if notes:
         lines += ["## Reviewer notes", "", notes, ""]
