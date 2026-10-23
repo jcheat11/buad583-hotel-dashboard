@@ -66,9 +66,11 @@ DEMO_SAMPLES = {
 }
 
 
-def build_demo_store(today: date | None = None) -> DataStore:
+def build_demo_store(today: date | None = None, preload: bool = True) -> DataStore:
+    """The six fictional hotels, with the 2026 budget and Jan-Jul actuals preloaded (or nothing, preload=False)."""
     properties, _ = load_properties(SAMPLE_DIR / "properties.csv")
     store = DataStore(properties, folder=None)
-    for file_name in PRELOADED:
+    for file_name in PRELOADED if preload else []:
         store.add_import(read_monthly_workbook(SAMPLE_DIR / file_name, file_name, properties, today))
+    store.preloaded = list(PRELOADED) if preload else []
     return store

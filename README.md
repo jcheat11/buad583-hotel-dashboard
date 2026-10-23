@@ -44,6 +44,9 @@ January–July actuals already imported. Nothing you do here is saved.
 The page menu is across the top. The workspace switch (fictional demo vs your local data) is in
 the sidebar, which starts collapsed: open it with the **>>** button at the top left.
 
+0. On opening, a short **Welcome** dialog asks whether to **Keep sample data** (the 2026 budget and
+   January–July 2026 actuals, preloaded) or **Start empty**. Choose *Keep sample data* for this walkthrough.
+   **Start over** on Data Imports & Checks clears everything or restores the sample at any time.
 1. **Portfolio Overview** shows July 2026. A small orange notice at the top right says
    *Aug 2026 not imported* (hover over it for details). The reporting period and comparison basis
    are stated under the title.

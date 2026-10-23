@@ -97,6 +97,7 @@ class DataStore:
     def __init__(self, properties: pd.DataFrame, folder: str | Path | None = None):
         self.properties = properties
         self.folder = Path(folder) if folder else None
+        self.preloaded: list[str] = []          # demo only: sample files loaded before the visitor did anything
         self.facts = self._load("facts")
         self.imports = self._load("imports")
         self.issues = self._load("issues")

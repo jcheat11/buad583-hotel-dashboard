@@ -1307,12 +1307,14 @@ def close_dialog() -> None:
 def sample_tiles(store: DataStore) -> None:
     """Demo only: one tile per import, each opening a preview of its fictional sample file."""
     with st.container(border=True):
-        head, zip_area = st.columns([3, 1], vertical_alignment="center")
+        head, zip_area = st.columns([3, 2], vertical_alignment="center")
         head.markdown("**Sample data** · six fictional hotels (H01 to H06)")
         head.caption("**Load sample** opens a preview; nothing is imported until you click **Import**. Imports stay "
                      "in this browser session and are not saved.")
-        zip_area.download_button("All sample files (.zip)", sample_files_zip(), key="sample_zip",
-                                 file_name="hotel_dashboard_fictional_samples.zip", icon=":material/download:")
+        with zip_area.container(horizontal=True, horizontal_alignment="right", gap="small"):
+            st.download_button("All sample files (.zip)", sample_files_zip(), key="sample_zip",
+                               file_name="hotel_dashboard_fictional_samples.zip", icon=":material/download:")
+            start_over_control()
         kinds = list(TILES)
         for row in (kinds[:3], kinds[3:]):
             for column, kind in zip(st.columns(3, gap="small"), row):
@@ -1337,18 +1339,24 @@ def tile_status(store: DataStore, kind: str) -> tuple[str, str]:
                 if complete else "none")
         if status.loc[sample_month, "Status"] == "Complete":
             return ":green-badge[:material/check_circle: August imported]", f"Actuals loaded: {span}."
-        return (":gray-badge[Jan – Jul preloaded]",
+        if not complete:
+            return ":gray-badge[Not loaded]", "No actuals loaded. Sample: the August 2026 close."
+        preloaded = "actuals_2026-01_to_2026-07.xlsx" in store.preloaded
+        return (f":gray-badge[{span} {'preloaded' if preloaded else 'loaded'}]",
                 f"Actuals loaded: {span}. Sample: the August 2026 close, not imported yet.")
     if kind == "budget":
         grid_2026 = coverage.budget_coverage(store, 2026)
         grid_2027 = coverage.budget_coverage(store, 2027)
         full_2026 = int((grid_2026["Months"] == "12 of 12").sum())
         full_2027 = int((grid_2027["Months"] == "12 of 12").sum())
-        badge = (":gray-badge[2026 budget preloaded]" if not full_2027 else
-                 ":green-badge[:material/check_circle: 2027 budget imported]" if full_2027 == len(grid_2027) else
-                 f":orange-badge[2027 budget: {full_2027} of {len(grid_2027)} hotels]")
-        return badge, (f"2026 budget: {full_2026} of {len(grid_2026)} hotels, preloaded. 2027: {full_2027} of "
-                       f"{len(grid_2027)} hotels. Re-importing 2026 asks before replacing.")
+        preloaded = "budget_2026.xlsx" in store.preloaded
+        badge = (":green-badge[:material/check_circle: 2027 budget imported]" if full_2027 == len(grid_2027) else
+                 f":orange-badge[2027 budget: {full_2027} of {len(grid_2027)} hotels]" if full_2027 else
+                 ":gray-badge[2026 budget preloaded]" if preloaded and full_2026 else
+                 ":gray-badge[2026 budget loaded]" if full_2026 else ":gray-badge[Not loaded]")
+        return badge, (f"2026 budget: {full_2026} of {len(grid_2026)} hotels{', preloaded' if preloaded else ''}. "
+                       f"2027: {full_2027} of {len(grid_2027)} hotels."
+                       + (" Re-importing 2026 asks before replacing." if full_2026 else ""))
     state = coverage.source_status(store, kind)
     if not state["loaded"]:
         return ":gray-badge[Not loaded]", f"Sample: {first_file}."
@@ -1849,6 +1857,53 @@ def signals_page() -> None:
 
 # ------------------------------------------------------------------------------------
 
+# --- Demo start: sample data preloaded, or an empty workspace ---------------------------------
+
+def start_demo(choice: str, confirm: bool = False) -> None:
+    """A fresh fictional demo workspace, with the sample data ('sample') or empty ('empty')."""
+    st.session_state.demo_store = build_demo_store(preload=choice == "sample")
+    st.session_state.demo_start = choice
+    for key in ("ai_draft", "import_dialog", "import_year", "next_import_year", "flash"):
+        st.session_state.pop(key, None)
+    st.session_state.uploader_round = st.session_state.get("uploader_round", 0) + 1
+    if confirm:                                       # shown on Data Imports & Checks
+        st.session_state.flash = ("Restored the fictional sample data: the 2026 budget and January–July 2026 "
+                                  "actuals." if choice == "sample" else
+                                  "All data cleared. Use the sample tiles or Upload / Import to begin.")
+
+
+def keep_sample_on_dismiss() -> None:
+    """Closing the welcome dialog without choosing keeps the sample data that is already loaded."""
+    st.session_state.demo_start = "sample"
+
+
+@st.dialog("Welcome to the Torchfolio demo", on_dismiss=keep_sample_on_dismiss)
+def start_dialog() -> None:
+    st.markdown("This class demo uses **fictional data only**. It can start with sample data already loaded "
+                "(the 2026 budget and January–July 2026 actuals for six fictional hotels), or empty, so you "
+                "import every file yourself.")
+    with st.container(horizontal=True, gap="small"):
+        if st.button("Keep sample data", type="primary", icon=":material/dataset:", key="start_sample"):
+            start_demo("sample")
+            st.rerun()
+        if st.button("Start empty", icon=":material/delete_sweep:", key="start_empty"):
+            start_demo("empty")
+            st.rerun()
+    st.caption("You can change this any time with **Start over** on Data Imports & Checks. Nothing is saved: "
+               "refreshing the page starts a new session and asks again.")
+
+
+def start_over_control() -> None:
+    """Data Imports & Checks (demo): clear everything, or go back to the sample starting point."""
+    with st.popover("Start over", icon=":material/restart_alt:"):
+        st.markdown("Replace everything in this demo session (imports, supporting data, approvals and any AI "
+                    "draft). Fictional data only; nothing is saved either way.")
+        st.button("Clear all data", icon=":material/delete_sweep:", key="clear_demo", on_click=start_demo,
+                  args=("empty", True), width="stretch")
+        st.button("Restore sample data", icon=":material/dataset:", key="restore_demo", on_click=start_demo,
+                  args=("sample", True), width="stretch")
+
+
 def main(hosted_demo: bool = False) -> None:
     MODE["hosted_demo"] = hosted_demo
     st.set_page_config(page_title="Torchfolio", page_icon=str(ICON_FILE), layout="wide",
@@ -1874,6 +1929,10 @@ def main(hosted_demo: bool = False) -> None:
     st.html("<style>h1,h2,h3{text-wrap:balance}"
             "[data-testid='stMetricValue'],[data-testid='stMetricDelta']{font-variant-numeric:tabular-nums}</style>")
     sidebar()
+    if workspace() == "demo" and "demo_store" not in st.session_state and "demo_start" not in st.session_state:
+        st.session_state.demo_start = "asking"            # first visit this session: offer an empty start
+    if workspace() == "demo" and st.session_state.get("demo_start") == "asking":
+        start_dialog()                                    # shown first; the page renders behind it
     navigation.run()
 
 
